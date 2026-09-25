@@ -4,32 +4,66 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>VKV Documentcontrole</title>
+    <meta
+      name="description"
+      content="Documentcontrole voor de Volvo Klassieker Vereniging."
+    />
     <link rel="stylesheet" href="/static/css/styles.css" />
   </head>
   <body>
     <header class="topbar">
-      <div class="container">
-        <div class="brand">
-          <h1>Volvo Klassieker Vereniging</h1>
-          <p>Documentcontrole</p>
+      <div class="container topbar-inner">
+        <div class="brand" aria-label="Volvo Klassieker Vereniging logo">
+          <div class="brand-mark">V</div>
+          <div class="brand-copy">
+            <span class="eyebrow">Volvo Klassieker Vereniging</span>
+            <h1>Documentcontrole</h1>
+          </div>
         </div>
+
+        <nav class="header-nav" aria-label="Hoofdnavigatie">
+          <a href="#">Home</a>
+          <a href="#">Agenda</a>
+          <a href="#">Lid worden</a>
+        </nav>
       </div>
     </header>
 
+    <section class="hero-shell">
+      <div class="container hero">
+        <div class="hero-copy">
+          <span class="hero-tag">Welkom bij de VKV</span>
+          <h2>Documentcontrole voor leden en vrijwilligers</h2>
+          <p>
+            Upload een document, controleer de tekst op spelling en stijl en
+            download het gecorrigeerde resultaat direct terug.
+          </p>
+        </div>
+        <div class="hero-panel">
+          <div class="hero-stat">
+            <strong>VKV</strong>
+            <span>Volvo Klassieker Vereniging</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <main class="container layout">
-      <section class="upload-panel">
+      <section class="upload-panel card-panel">
+        <div class="panel-kicker">Controle</div>
         <h2>Document controleren</h2>
         <p>
-          Upload een DOCX- of TXT-document voor een lokale controle op spelling,
-          grammatica en stijl.
+          Upload een DOCX-, PDF- of TXT-document en laat de tekst lokaal
+          controleren op spelling, grammatica en stijl.
         </p>
+
         <form id="upload-form" enctype="multipart/form-data">
           <label class="dropzone" for="file-input">
             <input
               id="file-input"
               type="file"
               name="file"
-              accept=".txt,.docx"
+              accept=".txt,.docx,.pdf"
             />
             <span>Sleep hier uw document of klik om een bestand te kiezen</span>
           </label>
@@ -38,9 +72,11 @@
         <div id="status" class="status" aria-live="polite"></div>
       </section>
 
-      <section class="result-panel">
+      <section class="result-panel card-panel">
+        <div class="panel-kicker">Resultaat</div>
         <h3>Documenttekst</h3>
         <textarea id="document-text" readonly></textarea>
+        <div id="chunk-review" class="chunk-review" aria-live="polite"></div>
         <div class="actions">
           <button id="download-btn" class="secondary" type="button" disabled>
             Gecorrigeerd document downloaden
@@ -48,11 +84,26 @@
         </div>
       </section>
 
-      <aside class="issues-panel">
+      <aside class="issues-panel card-panel">
+        <div class="panel-kicker">Controlelijst</div>
         <h3>Gevonden problemen</h3>
         <ul id="issue-list"></ul>
       </aside>
     </main>
+
+    <footer class="page-footer">
+      <div class="container footer-inner">
+        <div>
+          <strong>Volvo Klassieker Vereniging</strong>
+          <p>Documentcontrole en ledenondersteuning</p>
+        </div>
+        <div class="footer-links">
+          <a href="#">Agenda</a>
+          <a href="#">Forum</a>
+          <a href="#">Webshop</a>
+        </div>
+      </div>
+    </footer>
 
     <script src="/static/js/app.js"></script>
   </body>

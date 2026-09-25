@@ -3,10 +3,82 @@ const fileInput = document.getElementById('file-input');
 const statusBox = document.getElementById('status');
 const issueList = document.getElementById('issue-list');
 const documentText = document.getElementById('document-text');
+const chunkReview = document.getElementById('chunk-review');
 const downloadBtn = document.getElementById('download-btn');
 
 let currentDocumentText = '';
 let currentFileName = '';
+let currentStoredName = '';
+
+function renderChunks(chunks) {
+    chunkReview.innerHTML = '';
+    if (!Array.isArray(chunks) || chunks.length === 0) {
+        return;
+    }
+
+    chunks.forEach((chunk) => {
+        const card = document.createElement('section');
+        card.className = 'chunk-card';
+        if (chunk.approved) {
+            card.classList.add('approved');
+        }
+
+        const header = document.createElement('div');
+        header.className = 'chunk-card-header';
+        header.innerHTML = `<strong>Deel ${chunk.id}</strong><button type="button" class="secondary">${chunk.approved ? 'Goedgekeurd' : 'Deel goedkeuren'}</button>`;
+
+        const approveBtn = header.querySelector('button');
+        approveBtn.addEventListener('click', async () => {
+            const nextState = !chunk.approved;
+            chunk.approved = nextState;
+
+            if (currentStoredName) {
+                try {
+                    await fetch('/approve-chunk', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            stored_name: currentStoredName,
+                            chunk_id: chunk.id,
+                            approved: nextState,
+                        }),
+                    });
+                } catch (error) {
+                    console.error('Chunk status kon niet worden opgeslagen.', error);
+                }
+            }
+
+            renderChunks(chunks);
+            statusBox.textContent = chunk.approved ? `Deel ${chunk.id} goedgekeurd.` : `Controle voor deel ${chunk.id} opnieuw open.`;
+        });
+
+        const textBox = document.createElement('div');
+        textBox.className = 'chunk-card-text';
+        textBox.textContent = chunk.text || '';
+
+        const issueListEl = document.createElement('ul');
+        issueListEl.className = 'chunk-issue-list';
+
+        if (!chunk.issues || chunk.issues.length === 0) {
+            const emptyItem = document.createElement('li');
+            emptyItem.className = 'chunk-issue-item';
+            emptyItem.textContent = 'Geen problemen in dit deel.';
+            issueListEl.appendChild(emptyItem);
+        } else {
+            chunk.issues.forEach((issue) => {
+                const item = document.createElement('li');
+                item.className = 'chunk-issue-item';
+                item.innerHTML = `<strong>${issue.category || 'Controle'}</strong><div>${issue.message || issue.short_message || 'Geen uitleg beschikbaar.'}</div>`;
+                issueListEl.appendChild(item);
+            });
+        }
+
+        card.appendChild(header);
+        card.appendChild(textBox);
+        card.appendChild(issueListEl);
+        chunkReview.appendChild(card);
+    });
+}
 
 uploadForm.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -31,11 +103,13 @@ uploadForm.addEventListener('submit', async (event) => {
             throw new Error(data.detail || 'Controle mislukt.');
         }
 
-        statusBox.textContent = `Controle afgerond: ${data.issues.length} suggesties.`;
+        statusBox.textContent = `Controle afgerond: ${data.issues.length} suggesties. ${data.chunks?.length || 0} delen gecontroleerd.`;
         currentDocumentText = data.text;
         currentFileName = data.file_name;
+        currentStoredName = data.stored_name;
         documentText.value = data.text;
         issueList.innerHTML = '';
+        renderChunks(data.chunks || []);
 
         if (data.issues.length === 0) {
             const item = document.createElement('li');

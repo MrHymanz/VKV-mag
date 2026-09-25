@@ -15,17 +15,20 @@ from app.config import (
     APP_HOST,
     APP_PORT,
     DEFAULT_LANGUAGE,
+    LANGUAGETOOL_TIMEOUT_SECONDS,
     LANGUAGETOOL_URL,
     MAX_UPLOAD_MB,
     TEMP_DIR,
     UPLOAD_DIR,
 )
 from app.parsers.docx_parser import DocxParser
+from app.parsers.pdf_parser import PdfParser
 from app.parsers.txt_parser import TxtParser
 from app.services.correction_service import apply_correction
 from app.services.languagetool import LanguageToolClient
 
 app = FastAPI(title="VKV Documentcontrole", version="0.1.0")
+REVIEW_STATES: dict[str, dict[int, bool]] = {}
 
 templates = Jinja2Templates(directory="app/templates")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -33,6 +36,7 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 PARSER_MAP = {
     ".txt": TxtParser(),
     ".docx": DocxParser(),
+    ".pdf": PdfParser(),
 }
 
 
@@ -70,21 +74,46 @@ async def upload_document(file: UploadFile = File(...)) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="Geen parser beschikbaar voor dit bestandstype.")
 
     parsed = parser.parse(upload_path)
-    lt = LanguageToolClient(base_url=LANGUAGETOOL_URL)
+    lt = LanguageToolClient(base_url=LANGUAGETOOL_URL, timeout=LANGUAGETOOL_TIMEOUT_SECONDS)
     try:
-        issues = lt.check_text(parsed.text, language=DEFAULT_LANGUAGE)
+        chunks = lt.check_document_chunks(parsed.text, language=DEFAULT_LANGUAGE)
+        issues = [issue for chunk in chunks for issue in chunk["issues"]]
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    normalized = [lt.normalize_issue(match) for match in issues]
-    parsed.issues = normalized
+    for chunk in chunks:
+        chunk["approved"] = False
+
+    REVIEW_STATES[upload_path.name] = {chunk["id"]: False for chunk in chunks}
+    parsed.issues = issues
     return {
         "file_name": parsed.file_name,
         "stored_name": upload_path.name,
         "file_type": parsed.file_type,
         "text": parsed.text,
-        "issues": normalized,
+        "issues": issues,
+        "chunks": chunks,
     }
+
+
+@app.post("/approve-chunk")
+async def approve_chunk(payload: dict[str, Any]) -> dict[str, Any]:
+    stored_name = str(payload.get("stored_name", "")).strip()
+    chunk_id = int(payload.get("chunk_id", -1))
+    approved = bool(payload.get("approved", False))
+
+    if not stored_name:
+        raise HTTPException(status_code=400, detail="stored_name ontbreekt.")
+    if chunk_id < 0:
+        raise HTTPException(status_code=400, detail="chunk_id is ongeldig.")
+
+    path = UPLOAD_DIR / stored_name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Document niet gevonden.")
+
+    review_state = REVIEW_STATES.setdefault(stored_name, {})
+    review_state[chunk_id] = approved
+    return {"stored_name": stored_name, "chunk_id": chunk_id, "approved": approved}
 
 
 @app.post("/apply-correction")
