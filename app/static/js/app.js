@@ -25,7 +25,13 @@ function renderChunks(chunks) {
 
         const header = document.createElement('div');
         header.className = 'chunk-card-header';
-        header.innerHTML = `<strong>Deel ${chunk.id}</strong><button type="button" class="secondary">${chunk.approved ? 'Goedgekeurd' : 'Deel goedkeuren'}</button>`;
+        header.innerHTML = `
+            <div class="chunk-header-copy">
+                <strong>Controle deel ${chunk.id}</strong>
+                <span class="chunk-status ${chunk.approved ? 'approved' : 'open'}">${chunk.approved ? 'Goedgekeurd' : 'Open voor controle'}</span>
+            </div>
+            <button type="button" class="secondary">${chunk.approved ? 'Goedkeuring intrekken' : 'Deel goedkeuren'}</button>
+        `;
 
         const approveBtn = header.querySelector('button');
         approveBtn.addEventListener('click', async () => {
@@ -68,7 +74,17 @@ function renderChunks(chunks) {
             chunk.issues.forEach((issue) => {
                 const item = document.createElement('li');
                 item.className = 'chunk-issue-item';
-                item.innerHTML = `<strong>${issue.category || 'Controle'}</strong><div>${issue.message || issue.short_message || 'Geen uitleg beschikbaar.'}</div>`;
+                const suggestion = issue.replacements && issue.replacements.length
+                    ? issue.replacements.map((replacement) => replacement.value).join(', ')
+                    : 'Geen suggestie';
+                item.innerHTML = `
+                    <div class="issue-meta">
+                        <strong>${issue.category || 'Controle'}</strong>
+                        <span>${issue.rule_id || 'algemeen'}</span>
+                    </div>
+                    <div class="issue-text">${issue.message || issue.short_message || 'Geen uitleg beschikbaar.'}</div>
+                    <div class="issue-suggestion">Suggestie: ${suggestion}</div>
+                `;
                 issueListEl.appendChild(item);
             });
         }
