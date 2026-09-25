@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VKV Documentcontrole</title>
+    <link rel="stylesheet" href="/static/css/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="container">
+        <div class="brand">
+          <h1>Volvo Klassieker Vereniging</h1>
+          <p>Documentcontrole</p>
+        </div>
+      </div>
+    </header>
+
+    <main class="container layout">
+      <section class="upload-panel">
+        <h2>Document controleren</h2>
+        <p>
+          Upload een DOCX- of TXT-document voor een lokale controle op spelling,
+          grammatica en stijl.
+        </p>
+        <form id="upload-form" enctype="multipart/form-data">
+          <label class="dropzone" for="file-input">
+            <input
+              id="file-input"
+              type="file"
+              name="file"
+              accept=".txt,.docx"
+            />
+            <span>Sleep hier uw document of klik om een bestand te kiezen</span>
+          </label>
+          <button type="submit">Document controleren</button>
+        </form>
+        <div id="status" class="status" aria-live="polite"></div>
+      </section>
+
+      <section class="result-panel">
+        <h3>Documenttekst</h3>
+        <textarea id="document-text" readonly></textarea>
+        <div class="actions">
+          <button id="download-btn" class="secondary" type="button" disabled>
+            Gecorrigeerd document downloaden
+          </button>
+        </div>
+      </section>
+
+      <aside class="issues-panel">
+        <h3>Gevonden problemen</h3>
+        <ul id="issue-list"></ul>
+      </aside>
+    </main>
+
+    <script src="/static/js/app.js"></script>
+  </body>
+</html>
