@@ -26,6 +26,7 @@ from app.parsers.pdf_parser import PdfParser
 from app.parsers.txt_parser import TxtParser
 from app.services.correction_service import apply_correction
 from app.services.languagetool import LanguageToolClient
+from app.services.pdf_preview import build_comparison_pdf_preview
 
 app = FastAPI(title="VKV Documentcontrole", version="0.1.0")
 REVIEW_STATES: dict[str, dict[int, bool]] = {}
@@ -82,9 +83,9 @@ async def upload_document(file: UploadFile = File(...)) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     for chunk in chunks:
-        chunk["approved"] = False
+        chunk["approved"] = not chunk["issues"]
 
-    REVIEW_STATES[upload_path.name] = {chunk["id"]: False for chunk in chunks}
+    REVIEW_STATES[upload_path.name] = {chunk["id"]: chunk["approved"] for chunk in chunks}
     parsed.issues = issues
     return {
         "file_name": parsed.file_name,
@@ -124,6 +125,30 @@ async def apply_correction_route(payload: dict[str, Any]) -> dict[str, Any]:
     replacement = str(payload.get("replacement", ""))
     corrected = apply_correction(text, start, length, replacement)
     return {"corrected_text": corrected}
+
+
+@app.post("/comparison-pdf")
+async def create_comparison_pdf(payload: dict[str, Any]) -> FileResponse:
+    original_text = str(payload.get("original_text", ""))
+    revised_text = str(payload.get("revised_text", ""))
+    document_name = str(payload.get("file_name", "document"))
+    stored_name = str(payload.get("stored_name", ""))
+    original_pdf_path = UPLOAD_DIR / stored_name if stored_name else None
+
+    if not original_pdf_path and not original_text and not revised_text:
+        raise HTTPException(status_code=400, detail="Geen tekst beschikbaar voor PDF-vergelijking.")
+
+    safe_name = f"{uuid.uuid4().hex}-comparison.pdf"
+    preview_path = TEMP_DIR / safe_name
+    page_index = int(payload.get("page_index", 0))
+    build_comparison_pdf_preview(original_pdf_path, revised_text or original_text, preview_path, page_index=page_index)
+
+    document_base = Path(document_name).stem or "document"
+    return FileResponse(
+        preview_path,
+        media_type="application/pdf",
+        filename=f"{document_base}-vergelijking.pdf",
+    )
 
 
 @app.get("/download/{stored_name}")

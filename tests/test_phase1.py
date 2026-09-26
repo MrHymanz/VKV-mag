@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import fitz
 import pytest
 from docx import Document
 from fastapi.testclient import TestClient
@@ -10,6 +11,7 @@ from app.parsers.pdf_parser import PdfParser
 from app.parsers.txt_parser import TxtParser
 from app.services.correction_service import apply_correction
 from app.services.languagetool import LanguageToolClient
+from app.services.pdf_preview import build_comparison_pdf_preview
 
 
 @pytest.fixture
@@ -149,6 +151,71 @@ def test_apply_correction_replaces_text():
     text = "De redacteur bedoeld dat de auto uit 1967 komt."
     corrected = apply_correction(text, 13, 7, "bedoelt")
     assert corrected == "De redacteur bedoelt dat de auto uit 1967 komt."
+
+
+def test_build_comparison_pdf_preview_creates_pdf(tmp_path):
+    original = "Eerste regel.\nTweede regel.\n"
+    revised = "Eerste regel.\nTweede regel aangepast.\n"
+    output_path = tmp_path / "comparison-preview.pdf"
+
+    build_comparison_pdf_preview(None, revised, output_path)
+
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0
+    assert output_path.read_bytes().startswith(b"%PDF")
+
+
+def test_build_comparison_pdf_preview_single_page_for_selected_page(tmp_path):
+    pdf_path = tmp_path / "multi-page.pdf"
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import letter
+
+    canvas_doc = canvas.Canvas(str(pdf_path), pagesize=letter)
+    canvas_doc.drawString(100, 700, "Pagina 1")
+    canvas_doc.showPage()
+    canvas_doc.drawString(100, 700, "Pagina 2")
+    canvas_doc.save()
+
+    output_path = tmp_path / "selected-page-comparison.pdf"
+    build_comparison_pdf_preview(pdf_path, "Aangepaste tekst voor pagina 2", output_path, page_index=1)
+
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0
+    assert output_path.read_bytes().startswith(b"%PDF")
+
+
+def test_build_comparison_pdf_preview_keeps_original_page_artwork(tmp_path):
+    pdf_path = tmp_path / "layout-page.pdf"
+    from reportlab.lib.colors import HexColor
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+
+    canvas_doc = canvas.Canvas(str(pdf_path), pagesize=letter)
+    canvas_doc.setFillColor(HexColor("#ff0000"))
+    canvas_doc.rect(100, 450, 180, 150, fill=1, stroke=0)
+    canvas_doc.setFillColor(HexColor("#000000"))
+    canvas_doc.drawString(120, 520, "Logo layout test")
+    canvas_doc.save()
+
+    output_path = tmp_path / "artwork-comparison.pdf"
+    build_comparison_pdf_preview(pdf_path, "Aangepaste tekst op dezelfde pagina", output_path)
+
+    doc = fitz.open(str(output_path))
+    assert len(doc) == 1
+    pix = doc[0].get_pixmap(matrix=fitz.Matrix(0.5, 0.5))
+    width, height = pix.width, pix.height
+
+    found_red = False
+    for x in range(width // 2 + 30, width - 30):
+        for y in range(120, 260):
+            r, g, b = pix.pixel(x, y)[:3]
+            if r > 180 and g < 120 and b < 120:
+                found_red = True
+                break
+        if found_red:
+            break
+
+    assert found_red is True
 
 
 def test_upload_validation_rejects_bad_extension(tmp_path):

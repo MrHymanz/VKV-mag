@@ -49,7 +49,7 @@
     </section>
 
     <main class="container layout">
-      <section class="upload-panel card-panel">
+      <section id="upload-panel" class="upload-panel card-panel">
         <div class="panel-kicker">Controle</div>
         <h2>Document controleren</h2>
         <p>
@@ -72,7 +72,7 @@
         <div id="status" class="status" aria-live="polite"></div>
       </section>
 
-      <section class="result-panel card-panel">
+      <section class="result-panel card-panel" id="result-panel">
         <div class="panel-kicker">Resultaat</div>
         <h3>Documenttekst</h3>
         <textarea id="document-text" readonly></textarea>
@@ -84,11 +84,25 @@
         </div>
       </section>
 
-      <aside class="issues-panel card-panel">
+      <aside id="issues-panel" class="issues-panel card-panel">
         <div class="panel-kicker">Controlelijst</div>
         <h3>Gevonden problemen</h3>
         <ul id="issue-list"></ul>
       </aside>
+
+      <section
+        id="pdf-preview-panel"
+        class="pdf-preview-panel card-panel is-hidden"
+        aria-live="polite"
+      >
+        <div class="panel-kicker">PDF-vergelijking</div>
+        <h3>Vergelijking op de hoofdpagina</h3>
+        <iframe
+          id="pdf-preview-frame"
+          title="PDF-vergelijking"
+          class="pdf-preview-frame"
+        ></iframe>
+      </section>
     </main>
 
     <footer class="page-footer">

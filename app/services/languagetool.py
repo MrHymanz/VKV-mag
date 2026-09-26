@@ -112,6 +112,36 @@ class LanguageToolClient:
 
         return chunks
 
+    @staticmethod
+    def _humanize_issue_label(value: str | None) -> str:
+        label = (value or "").strip()
+        if not label or label.lower() == "unknown":
+            return "Controle"
+
+        normalized = label.lower().replace("-", "_")
+        keyword_map = {
+            "whitespace": "Witruimte",
+            "whitespace_rule": "Witruimte",
+            "spelling": "Spelling",
+            "morfologik": "Spelling",
+            "morfologik_rule": "Spelling",
+            "grammar": "Grammatica",
+            "grammatica": "Grammatica",
+            "style": "Stijl",
+            "punctuation": "Interpunctie",
+            "comma": "Interpunctie",
+            "duplication": "Herhaling",
+            "duplicate": "Herhaling",
+            "consistency": "Consistentie",
+            "ambiguity": "Interpretatie",
+        }
+
+        for key, human_label in keyword_map.items():
+            if key in normalized:
+                return human_label
+
+        return label.replace("_", " ").title()
+
     def normalize_issue(self, match: dict[str, Any]) -> dict[str, Any]:
         replacements = []
         for replacement in match.get("replacements", [])[:5]:
@@ -120,11 +150,18 @@ class LanguageToolClient:
                 "short_description": replacement.get("shortDescription", ""),
             })
 
+        category_name = match.get("category", {}).get("name", "unknown")
+        rule_id = match.get("rule", {}).get("id", "unknown")
+        display_category = self._humanize_issue_label(category_name if category_name and category_name.lower() != "unknown" else rule_id)
+        display_rule = self._humanize_issue_label(rule_id if rule_id and rule_id.lower() != "unknown" else category_name)
+
         return {
             "message": match.get("message", ""),
             "short_message": match.get("shortMessage", ""),
-            "category": match.get("category", {}).get("name", "unknown"),
-            "rule_id": match.get("rule", {}).get("id", "unknown"),
+            "category": category_name,
+            "display_category": display_category,
+            "rule_id": rule_id,
+            "display_rule": display_rule,
             "offset": match.get("offset", 0),
             "length": match.get("length", 0),
             "replacements": replacements,
