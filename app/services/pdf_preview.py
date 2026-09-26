@@ -54,24 +54,8 @@ def _render_revised_page_text(page: fitz.Page, source_page: fitz.Page | None, re
         source_pix = source_page.get_pixmap(matrix=fitz.Matrix(1.0, 1.0))
         page.insert_image(page.rect, stream=source_pix.tobytes("png"))
 
-    source_text = source_page.get_text("text") if source_page is not None else ""
-    changed_words = _find_changed_words(source_text, revised_text)
-    paragraphs = [part.strip() for part in revised_text.splitlines() if part.strip()] or [revised_text]
-    blocks = source_page.get_text("blocks") if source_page is not None else []
-
-    if blocks and changed_words:
-        for block in blocks:
-            if len(block) < 6:
-                continue
-            x0, y0, x1, y1, block_text, _, _ = block[:7]
-            normalized = _normalize_word_tokens(str(block_text or ""))
-            if not normalized or not set(normalized).intersection(changed_words):
-                continue
-
-            rect = fitz.Rect(float(x0) - 3, float(y0) - 3, float(x1) + 3, float(y1) + 3)
-            page.draw_rect(rect, fill=(1.0, 0.86, 0.86), color=(0.8, 0.2, 0.2), overlay=True)
-
-    if not blocks:
+    if source_page is None:
+        paragraphs = [part.strip() for part in revised_text.splitlines() if part.strip()] or [revised_text]
         margin_left = 60
         margin_top = 70
         line_height = 14
@@ -96,6 +80,53 @@ def _render_revised_page_text(page: fitz.Page, source_page: fitz.Page | None, re
                 break
         return
 
+    source_words = source_page.get_text("words") or []
+    if source_words:
+        original_tokens = [re.sub(r"[^A-Za-z0-9À-ÿ]", "", item[4]).lower() for item in source_words if item[4].strip()]
+        revised_tokens = [re.sub(r"[^A-Za-z0-9À-ÿ]", "", token).lower() for token in re.findall(r"\b[\wÀ-ÿ]+\b", revised_text)]
+        matcher = difflib.SequenceMatcher(None, original_tokens, revised_tokens, autojunk=False)
+
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == "equal":
+                continue
+
+            if tag in {"replace", "delete"}:
+                for idx in range(i1, i2):
+                    if idx >= len(source_words):
+                        continue
+                    word = source_words[idx]
+                    x0, y0, x1, y1 = word[:4]
+                    rect = fitz.Rect(float(x0) - 1, float(y0) - 1, float(x1) + 1, float(y1) + 1)
+                    page.draw_rect(
+                        rect,
+                        fill=(0.97, 0.94, 0.94),
+                        color=(0.82, 0.38, 0.38),
+                        overlay=True,
+                    )
+
+            if tag in {"replace", "insert"}:
+                replacement_tokens = revised_tokens[j1:j2]
+                for offset, token in enumerate(replacement_tokens):
+                    source_index = min(i1 + offset, len(source_words) - 1)
+                    if source_index < 0:
+                        continue
+                    word = source_words[source_index]
+                    x0, y0, x1, y1 = word[:4]
+                    bbox = fitz.Rect(float(x0), float(y0), float(x1), float(y1))
+                    if token:
+                        page.insert_textbox(
+                            bbox,
+                            token,
+                            fontsize=8.2,
+                            fontname="helv",
+                            color=(0.10, 0.48, 0.28),
+                            fill=(0.96, 0.99, 0.96),
+                            overlay=True,
+                        )
+        return
+
+    paragraphs = [part.strip() for part in revised_text.splitlines() if part.strip()] or [revised_text]
+    blocks = source_page.get_text("blocks") or []
     block_limit = min(len(blocks), max(1, len(paragraphs)))
     for index in range(block_limit):
         block = blocks[index]
@@ -107,13 +138,13 @@ def _render_revised_page_text(page: fitz.Page, source_page: fitz.Page | None, re
             continue
 
         paragraph = paragraphs[index % len(paragraphs)]
-        page.draw_rect(box, fill=(0.85, 0.97, 0.88), color=(0.1, 0.55, 0.35), overlay=True)
+        page.draw_rect(box, fill=(0.96, 0.99, 0.97), color=(0.22, 0.58, 0.38), overlay=True)
         page.insert_textbox(
             box,
             paragraph,
-            fontsize=9.5,
+            fontsize=8.4,
             fontname="helv",
-            color=(0.1, 0.38, 0.25),
+            color=(0.10, 0.38, 0.25),
             align=1,
             overlay=True,
         )
