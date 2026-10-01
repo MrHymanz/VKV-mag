@@ -15,30 +15,21 @@ class LanguageToolClient:
         self.check_url = f"{self.base_url}/v2/check"
 
     def _split_text(self, text: str) -> list[str]:
-        stripped = text.strip()
-        if not stripped:
+        if not text.strip():
             return []
-        if len(stripped) <= self.max_chars_per_request:
-            return [stripped]
-
-        sentences = re.split(r"(?<=[.!?])\s+", stripped)
-        chunks: list[str] = []
-        current = ""
-
-        for sentence in sentences:
-            candidate = sentence if not current else f"{current} {sentence}"
-            if len(candidate) <= self.max_chars_per_request:
-                current = candidate
-                continue
-
-            if current.strip():
-                chunks.append(current.strip())
-            current = sentence.strip()
-
-        if current.strip():
-            chunks.append(current.strip())
-
-        return chunks or [stripped[: self.max_chars_per_request]]
+        chunks = []
+        start = 0
+        while start < len(text):
+            end = min(start + self.max_chars_per_request, len(text))
+            if end < len(text):
+                # Keep whitespace verbatim so LanguageTool offsets still map to
+                # the original page, including text split across requests.
+                boundary = max(text.rfind(" ", start, end), text.rfind("\n", start, end))
+                if boundary > start:
+                    end = boundary + 1
+            chunks.append(text[start:end])
+            start = end
+        return chunks
 
     def _request_chunk(self, chunk: str, language: str = "nl-NL") -> list[dict[str, Any]]:
         payload = {

@@ -77,7 +77,24 @@ async def upload_document(file: UploadFile = File(...)) -> dict[str, Any]:
     parsed = parser.parse(upload_path)
     lt = LanguageToolClient(base_url=LANGUAGETOOL_URL, timeout=LANGUAGETOOL_TIMEOUT_SECONDS)
     try:
-        chunks = lt.check_document_chunks(parsed.text, language=DEFAULT_LANGUAGE)
+        if parsed.file_type == "pdf":
+            chunks = []
+            start = 0
+            for page_index, text in enumerate(parsed.metadata["pages"]):
+                page_issues = []
+                for checked in lt.check_document_chunks(text, language=DEFAULT_LANGUAGE):
+                    for issue in checked["issues"]:
+                        page_issues.append({**issue, "offset": issue["offset"] + start})
+                chunks.append({
+                    "id": page_index + 1,
+                    "page_index": page_index,
+                    "text": text,
+                    "start": start,
+                    "issues": page_issues,
+                })
+                start += len(text) + 1
+        else:
+            chunks = lt.check_document_chunks(parsed.text, language=DEFAULT_LANGUAGE)
         issues = [issue for chunk in chunks for issue in chunk["issues"]]
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -141,7 +158,13 @@ async def create_comparison_pdf(payload: dict[str, Any]) -> FileResponse:
     safe_name = f"{uuid.uuid4().hex}-comparison.pdf"
     preview_path = TEMP_DIR / safe_name
     page_index = int(payload.get("page_index", 0))
-    build_comparison_pdf_preview(original_pdf_path, revised_text or original_text, preview_path, page_index=page_index)
+    try:
+        build_comparison_pdf_preview(
+            original_pdf_path, revised_text, preview_path,
+            page_index=page_index, original_text=original_text,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     document_base = Path(document_name).stem or "document"
     return FileResponse(

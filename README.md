@@ -115,6 +115,31 @@ python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8765
 
 De app verwacht een lokaal draaiende LanguageTool-instantie op de configuratie-URL, standaard `http://127.0.0.1:8081`.
 
+De Docker-container draait standaard met UID/GID `1000:1000`, passend bij de
+schrijfrechten van de opslagmappen op deze server. Gebruik bij een verhuizing
+zo nodig `VKV_UID` en `VKV_GID` om de gebruiker met schrijfrechten op `storage`
+te kiezen.
+
+## Testen
+
+Installeer de afhankelijkheden in een virtuele omgeving:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+```
+
+Voer de tests uit met tijdelijke opslag, zodat testuploads gescheiden blijven
+van bestaande documenten:
+
+```bash
+VKV_TEST_DIR=$(mktemp -d)
+UPLOAD_DIR="$VKV_TEST_DIR/uploads" TEMP_DIR="$VKV_TEST_DIR/temporary" .venv/bin/python -m pytest -q
+```
+
+De uploadtest gebruikt een draaiende lokale LanguageTool-instantie, standaard
+op `http://127.0.0.1:8010`. Stel zo nodig `LANGUAGETOOL_URL` in.
+
 ## Privacy
 
 - Geen externe API's

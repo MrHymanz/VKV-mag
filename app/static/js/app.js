@@ -39,8 +39,11 @@ function buildRevisedChunkText(chunk) {
             const chunkStart = Number(chunk.start || 0);
             const issueOffset = Number(issue.offset || 0);
             const issueLength = Math.max(Number(issue.length || 0), 0);
-            const start = Math.max(0, issueOffset - chunkStart);
-            const end = Math.min(chunkText.length, start + issueLength);
+            const start = issueOffset - chunkStart;
+            const end = start + issueLength;
+            if (start < 0 || end > chunkText.length) {
+                return null;
+            }
             const replacement = issue.replacements && issue.replacements.length ? issue.replacements[0].value : '';
             const originalSlice = chunkText.slice(start, end);
             const normalizedOriginal = originalSlice.replace(/\s+/g, ' ').trim();
@@ -64,6 +67,7 @@ function buildRevisedChunkText(chunk) {
     let cursor = 0;
 
     for (const edit of edits) {
+        if (edit.start < cursor) continue;
         result += chunkText.slice(cursor, edit.start);
         result += edit.replacement;
         cursor = edit.end;
@@ -207,45 +211,51 @@ function renderChunks(chunks) {
 
     const pdfCompareBtn = nav.querySelector('#pdf-compare-btn');
     pdfCompareBtn.addEventListener('click', async () => {
-        const originalText = chunk.text || '';
-        const revisedText = buildRevisedChunkText(chunk);
-        const response = await fetch('/comparison-pdf', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                original_text: originalText,
-                revised_text: revisedText,
-                file_name: currentFileName || 'document.pdf',
-                stored_name: currentStoredName || '',
-                page_index: currentChunkIndex,
-            }),
-        });
+        try {
+            const originalText = chunk.text || '';
+            const revisedText = buildRevisedChunkText(chunk);
+            const response = await fetch('/comparison-pdf', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    original_text: originalText,
+                    revised_text: revisedText,
+                    file_name: currentFileName || 'document.pdf',
+                    stored_name: currentStoredName || '',
+                    page_index: chunk.page_index ?? currentChunkIndex,
+                }),
+            });
 
-        if (!response.ok) {
-            const error = await response.json().catch(() => ({ detail: 'PDF-vergelijking kon niet worden gemaakt.' }));
-            throw new Error(error.detail || 'PDF-vergelijking kon niet worden gemaakt.');
-        }
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({ detail: 'PDF-vergelijking kon niet worden gemaakt.' }));
+                throw new Error(error.detail || 'PDF-vergelijking kon niet worden gemaakt.');
+            }
 
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        if (pdfPreviewFrame) {
-            pdfPreviewFrame.src = url;
-            pdfPreviewPanel?.classList.remove('is-hidden');
-            pdfPreviewPanel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            statusBox.textContent = `PDF-vergelijking voor deel ${chunk.id} wordt hieronder getoond.`;
-        } else {
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${currentFileName || 'document'}-vergelijking.pdf`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            statusBox.textContent = `PDF-vergelijking voor deel ${chunk.id} gedownload.`;
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            if (pdfPreviewFrame) {
+                pdfPreviewFrame.src = url;
+                pdfPreviewPanel?.classList.remove('is-hidden');
+                pdfPreviewPanel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                statusBox.textContent = `PDF-vergelijking voor deel ${chunk.id} wordt hieronder getoond.`;
+            } else {
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${currentFileName || 'document'}-vergelijking.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                statusBox.textContent = `PDF-vergelijking voor deel ${chunk.id} gedownload.`;
+            }
+            window.setTimeout(() => window.URL.revokeObjectURL(url), 10000);
+        } catch (error) {
+            statusBox.textContent = error.message;
+            pdfPreviewPanel?.classList.add('is-hidden');
+            if (pdfPreviewFrame) pdfPreviewFrame.removeAttribute('src');
         }
-        window.setTimeout(() => window.URL.revokeObjectURL(url), 10000);
     });
 
-    nav.querySelectorAll('.nav-button').forEach((button, index) => {
+    nav.querySelectorAll('.nav-button:not(#pdf-compare-btn)').forEach((button, index) => {
         button.addEventListener('click', () => {
             if (button.textContent === 'Vorige') {
                 if (currentChunkIndex > 0) {
@@ -270,7 +280,10 @@ function renderChunks(chunks) {
     originalTitle.textContent = 'Originele PDF pagina';
     const originalText = document.createElement('div');
     originalText.className = 'compare-text';
-    const diffMarkup = buildDiffMarkup(chunk.text || '', buildRevisedChunkText(chunk), chunk.issues || []);
+    const localIssues = (chunk.issues || []).map((issue) => ({
+        ...issue, offset: issue.offset - (chunk.start || 0),
+    }));
+    const diffMarkup = buildDiffMarkup(chunk.text || '', chunk.text || '', localIssues);
     originalText.innerHTML = diffMarkup.originalHtml;
     originalCompare.appendChild(originalTitle);
     originalCompare.appendChild(originalText);
@@ -348,7 +361,9 @@ uploadForm.addEventListener('submit', async (event) => {
             body: formData,
         });
 
-        const data = await response.json();
+        const data = await response.json().catch(() => {
+            throw new Error(`De server kon de upload niet verwerken (HTTP ${response.status}). Probeer het opnieuw of neem contact op met de beheerder.`);
+        });
         if (!response.ok) {
             throw new Error(data.detail || 'Controle mislukt.');
         }
@@ -362,6 +377,7 @@ uploadForm.addEventListener('submit', async (event) => {
         documentText.value = data.text;
         setReviewMode(true);
         issueList.innerHTML = '';
+        currentChunkIndex = 0;
         renderChunks(chunks);
 
         if (data.issues.length === 0) {

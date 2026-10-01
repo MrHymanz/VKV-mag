@@ -222,3 +222,115 @@ def test_upload_validation_rejects_bad_extension(tmp_path):
     file_path = tmp_path / "bad.exe"
     file_path.write_text("bad", encoding="utf-8")
     assert file_path.suffix.lower() != ".txt"
+
+
+def test_comparison_marks_original_red_and_replacement_green(tmp_path):
+    source = tmp_path / 'highlight-source.pdf'
+    with fitz.open() as doc:
+        page = doc.new_page(width=400, height=160)
+        page.insert_text((40, 70), 'De redacteur bedoeld dat.', fontsize=14)
+        doc.save(source)
+    output = tmp_path / 'highlights.pdf'
+    build_comparison_pdf_preview(source, 'De redacteur bedoelt dat.', output)
+    with fitz.open(output) as doc:
+        page = doc[0]
+        left = page.get_text(clip=fitz.Rect(0, 0, 400, 160))
+        right = page.get_text(clip=fitz.Rect(420, 0, 820, 160))
+        assert 'bedoeld' in left
+        assert 'bedoelt' in right
+        assert 'bedoeld' not in right
+        assert 'De redacteur' in right
+        pix = page.get_pixmap()
+        old_rect = page.search_for('bedoeld')[0]
+        new_rect = page.search_for('bedoelt')[0]
+        r, g, b = pix.pixel(int(old_rect.x0 + 2), int(old_rect.y0 + 1))[:3]
+        assert r > g + 20 and r > b + 20
+        r, g, b = pix.pixel(int(new_rect.x0 + 2), int(new_rect.y0 + 1))[:3]
+        assert g > r + 20 and g > b + 20
+
+
+def test_comparison_preserves_case_and_punctuation_corrections(tmp_path):
+    source = tmp_path / 'case-source.pdf'
+    with fitz.open() as doc:
+        page = doc.new_page()
+        page.insert_text((40, 70), 'hallo wereld!')
+        doc.save(source)
+    output = tmp_path / 'case.pdf'
+    build_comparison_pdf_preview(source, 'Hallo wereld.', output)
+    with fitz.open(output) as doc:
+        right = doc[0].get_text(clip=fitz.Rect(615, 0, 1210, 842))
+        assert 'Hallo wereld.' in right
+
+
+def test_pdf_upload_keeps_review_chunks_on_page_boundaries(tmp_path, monkeypatch):
+    from app import main
+    monkeypatch.setattr(main, 'UPLOAD_DIR', tmp_path)
+    monkeypatch.setattr(LanguageToolClient, '_request_chunk', lambda self, text, language: [])
+    with fitz.open() as doc:
+        for text in ['Eerste pagina. ' * 1400, '', 'Laatste pagina.']:
+            page = doc.new_page(width=600, height=20000)
+            if text:
+                page.insert_textbox(page.rect, text, fontsize=10)
+        response = TestClient(app).post('/upload', files={'file': ('pages.pdf', doc.tobytes(), 'application/pdf')})
+    assert response.status_code == 200
+    chunks = response.json()['chunks']
+    assert len(chunks) == 3
+    assert len(chunks[0]['text']) > 15000
+    assert [chunk['page_index'] for chunk in chunks] == [0, 1, 2]
+    assert chunks[1]['text'] == ''
+    assert chunks[2]['text'] == 'Laatste pagina.'
+    assert chunks[2]['start'] == len(chunks[0]['text']) + 2
+
+
+def test_languagetool_chunk_offsets_preserve_whitespace(monkeypatch):
+    client = LanguageToolClient('http://unused', max_chars_per_request=18)
+    text = '  Een regel.\n\nNog  een fout. ' + 'x' * 40
+    monkeypatch.setattr(client, '_request_chunk', lambda chunk, language: [
+        {'offset': chunk.index('fout'), 'length': 4}
+    ] if 'fout' in chunk else [])
+    chunks = client.check_document_chunks(text)
+    assert ''.join(chunk['text'] for chunk in chunks) == text
+    assert all(len(chunk['text']) <= 18 for chunk in chunks)
+    issue = next(issue for chunk in chunks for issue in chunk['issues'])
+    assert issue['offset'] == text.index('fout')
+
+
+def test_comparison_rejects_partial_page_text(sample_pdf_file, tmp_path):
+    with pytest.raises(ValueError, match='volledige PDF-pagina'):
+        build_comparison_pdf_preview(sample_pdf_file, 'bedoelt', tmp_path / 'bad.pdf', original_text='bedoeld')
+    assert not (tmp_path / 'bad.pdf').exists()
+
+
+def test_unchanged_multicolumn_page_keeps_all_text(tmp_path):
+    from app.parsers.pdf_parser import page_text
+    source = tmp_path / 'columns.pdf'
+    with fitz.open() as doc:
+        page = doc.new_page()
+        # PDF content order deliberately differs from visual reading order.
+        page.insert_text((300, 100), 'Rechter kolom blijft staan.')
+        page.insert_text((40, 100), 'Linker kolom blijft ook staan.')
+        page.insert_text((40, 50), 'Koptekst')
+        original = page_text(page)
+        doc.save(source)
+    output = tmp_path / 'unchanged.pdf'
+    build_comparison_pdf_preview(source, original, output, original_text=original)
+    with fitz.open(output) as doc:
+        page = doc[0]
+        left = page.get_text(clip=fitz.Rect(0, 0, 595, 842))
+        right = page.get_text(clip=fitz.Rect(615, 0, 1210, 842))
+        assert left == right
+        assert not page.get_drawings()
+
+
+def test_comparison_api_rejects_stale_review_text(sample_pdf_file, tmp_path, monkeypatch):
+    from app import main
+    monkeypatch.setattr(main, 'UPLOAD_DIR', tmp_path)
+    monkeypatch.setattr(main, 'TEMP_DIR', tmp_path)
+    response = TestClient(app).post('/comparison-pdf', json={
+        'stored_name': sample_pdf_file.name,
+        'original_text': 'Een deel van een andere pagina.',
+        'revised_text': 'Een aangepast deel.',
+        'page_index': 0,
+    })
+    assert response.status_code == 409
+    assert 'Upload het document opnieuw' in response.json()['detail']

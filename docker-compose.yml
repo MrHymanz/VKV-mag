@@ -1,0 +1,23 @@
+services:
+  vkv-mag:
+    build: .
+    container_name: vkv-mag
+    restart: unless-stopped
+    user: "${VKV_UID:-1000}:${VKV_GID:-1000}"
+    ports:
+      - "8765:8765"
+    environment:
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8765
+      LANGUAGETOOL_URL: http://host.docker.internal:8010
+      DEFAULT_LANGUAGE: nl-NL
+      MAX_UPLOAD_MB: 25
+      TEMP_FILE_TTL_MINUTES: 60
+      UPLOAD_DIR: storage/uploads
+      TEMP_DIR: storage/temporary
+      LOG_LEVEL: INFO
+      ALLOWED_EXTENSIONS: .txt,.docx,.pdf
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./storage:/app/storage

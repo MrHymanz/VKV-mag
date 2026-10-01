@@ -6,6 +6,8 @@ from pathlib import Path
 
 import fitz
 
+from app.parsers.pdf_parser import page_text
+
 
 def _wrap_text_for_render(text: str, max_chars_per_line: int = 84) -> list[str]:
     lines: list[str] = []
@@ -28,126 +30,75 @@ def _wrap_text_for_render(text: str, max_chars_per_line: int = 84) -> list[str]:
     return lines or [""]
 
 
-def _normalize_word_tokens(text: str) -> list[str]:
-    return [token.lower() for token in re.findall(r"[A-Za-z0-9]+", text or "")]
+def _highlight(page: fitz.Page, rect: fitz.Rect, color: tuple[float, float, float]) -> None:
+    page.draw_rect(rect, color=None, fill=color, fill_opacity=0.22, overlay=True)
 
 
-def _find_changed_words(original_text: str, revised_text: str) -> set[str]:
-    original_tokens = _normalize_word_tokens(original_text)
-    revised_tokens = _normalize_word_tokens(revised_text)
-    matcher = difflib.SequenceMatcher(None, original_tokens, revised_tokens, autojunk=False)
-    changed: set[str] = set()
-
+def _comparison_pages(source_doc: fitz.Document, page_index: int, revised_text: str) -> tuple[fitz.Document, fitz.Document]:
+    original = fitz.open()
+    original.insert_pdf(source_doc, from_page=page_index, to_page=page_index)
+    revised = fitz.open()
+    revised.insert_pdf(source_doc, from_page=page_index, to_page=page_index)
+    left, right = original[0], revised[0]
+    words = left.get_text("words")
+    # Preserve punctuation and capitalisation: those may themselves be corrections.
+    tokens = re.findall(r"\S+", revised_text)
+    matcher = difflib.SequenceMatcher(None, [word[4] for word in words], tokens, autojunk=False)
+    replacements = []
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
             continue
-        changed.update(original_tokens[i1:i2])
-        changed.update(revised_tokens[j1:j2])
-
-    return changed
-
-
-def _render_revised_page_text(page: fitz.Page, source_page: fitz.Page | None, revised_text: str) -> None:
-    page.clean_contents()
-
-    if source_page is not None:
-        source_pix = source_page.get_pixmap(matrix=fitz.Matrix(1.0, 1.0))
-        page.insert_image(page.rect, stream=source_pix.tobytes("png"))
-
-    if source_page is None:
-        paragraphs = [part.strip() for part in revised_text.splitlines() if part.strip()] or [revised_text]
-        margin_left = 60
-        margin_top = 70
-        line_height = 14
-        max_lines = 55
-        lines_drawn = 0
-        for paragraph in paragraphs[:max_lines]:
-            for line in _wrap_text_for_render(paragraph):
-                if lines_drawn >= max_lines:
-                    break
-                y_position = page.rect.height - margin_top - lines_drawn * line_height
-                if y_position < 30:
-                    break
-                page.insert_text(
-                    (margin_left, y_position),
-                    line,
-                    fontsize=11,
-                    color=(0.1, 0.38, 0.25),
-                    overlay=True,
-                )
-                lines_drawn += 1
-            if lines_drawn >= max_lines:
-                break
-        return
-
-    source_words = source_page.get_text("words") or []
-    if source_words:
-        original_tokens = [re.sub(r"[^A-Za-z0-9À-ÿ]", "", item[4]).lower() for item in source_words if item[4].strip()]
-        revised_tokens = [re.sub(r"[^A-Za-z0-9À-ÿ]", "", token).lower() for token in re.findall(r"\b[\wÀ-ÿ]+\b", revised_text)]
-        matcher = difflib.SequenceMatcher(None, original_tokens, revised_tokens, autojunk=False)
-
-        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-            if tag == "equal":
-                continue
-
-            if tag in {"replace", "delete"}:
-                for idx in range(i1, i2):
-                    if idx >= len(source_words):
-                        continue
-                    word = source_words[idx]
-                    x0, y0, x1, y1 = word[:4]
-                    rect = fitz.Rect(float(x0) - 1, float(y0) - 1, float(x1) + 1, float(y1) + 1)
-                    page.draw_rect(
-                        rect,
-                        fill=(0.97, 0.94, 0.94),
-                        color=(0.82, 0.38, 0.38),
-                        overlay=True,
-                    )
-
-            if tag in {"replace", "insert"}:
-                replacement_tokens = revised_tokens[j1:j2]
-                for offset, token in enumerate(replacement_tokens):
-                    source_index = min(i1 + offset, len(source_words) - 1)
-                    if source_index < 0:
-                        continue
-                    word = source_words[source_index]
-                    x0, y0, x1, y1 = word[:4]
-                    bbox = fitz.Rect(float(x0), float(y0), float(x1), float(y1))
-                    if token:
-                        page.insert_textbox(
-                            bbox,
-                            token,
-                            fontsize=8.2,
-                            fontname="helv",
-                            color=(0.10, 0.48, 0.28),
-                            fill=(0.96, 0.99, 0.96),
-                            overlay=True,
-                        )
-        return
-
-    paragraphs = [part.strip() for part in revised_text.splitlines() if part.strip()] or [revised_text]
-    blocks = source_page.get_text("blocks") or []
-    block_limit = min(len(blocks), max(1, len(paragraphs)))
-    for index in range(block_limit):
-        block = blocks[index]
-        if len(block) < 4:
+        removed = words[i1:i2]
+        for word in removed:
+            rect = fitz.Rect(word[:4])
+            _highlight(left, rect, (1, 0.2, 0.2))
+            # Remove only text, leaving pictures and background artwork intact.
+            # Font bounding boxes can overlap neighbouring lines in magazines.
+            # A narrow strip through the glyph centres avoids removing those lines.
+            strip = fitz.Rect(rect.x0 + 0.1, rect.y0 + rect.height * 0.45,
+                              rect.x1 - 0.1, rect.y0 + rect.height * 0.55)
+            right.add_redact_annot(strip, fill=False, cross_out=False)
+        added = tokens[j1:j2]
+        if not added or not words:
             continue
-        x0, y0, x1, y1, _, _, _ = block[:7]
-        box = fitz.Rect(float(x0), float(y0), float(x1), float(y1))
-        if box.width <= 20 or box.height <= 10:
-            continue
-
-        paragraph = paragraphs[index % len(paragraphs)]
-        page.draw_rect(box, fill=(0.96, 0.99, 0.97), color=(0.22, 0.58, 0.38), overlay=True)
-        page.insert_textbox(
-            box,
-            paragraph,
-            fontsize=8.4,
-            fontname="helv",
-            color=(0.10, 0.38, 0.25),
-            align=1,
-            overlay=True,
-        )
+        if removed:
+            # Keep each source line separate for corrections spanning line breaks.
+            groups = []
+            for word in removed:
+                if not groups or groups[-1][-1][5:7] != word[5:7]:
+                    groups.append([])
+                groups[-1].append(word)
+            cursor = 0
+            for index, group in enumerate(groups):
+                count = len(added) - cursor if index == len(groups) - 1 else min(len(group), len(added) - cursor)
+                if count <= 0:
+                    break
+                rect = fitz.Rect(group[0][:4])
+                for word in group[1:]:
+                    rect |= fitz.Rect(word[:4])
+                replacements.append((rect, " ".join(added[cursor:cursor + count])))
+                cursor += count
+        else:
+            # Insertions use the available gap, without painting over a neighbour.
+            anchor = words[min(i1, len(words) - 1)]
+            x0, y0, x1, y1 = anchor[:4]
+            if i1 > 0 and words[i1 - 1][5:7] == anchor[5:7] and i1 < len(words):
+                rect = fitz.Rect(words[i1 - 1][2] + 0.5, y0, x0 - 0.5, y1)
+            elif i1 == 0:
+                rect = fitz.Rect(max(0, x0 - 60), y0, x0 - 1, y1)
+            else:
+                rect = fitz.Rect(x1 + 1, y0, min(right.rect.width, x1 + 90), y1)
+            if rect.width > 0:
+                replacements.append((rect, " ".join(added)))
+    right.apply_redactions(images=0, graphics=0)
+    font = fitz.Font("helv")
+    for rect, text in replacements:
+        size = min(rect.height / (font.ascender - font.descender),
+                   rect.width / max(font.text_length(text, fontsize=1), 0.01))
+        _highlight(right, rect, (0.15, 0.85, 0.3))
+        right.insert_text((rect.x0, rect.y0 + font.ascender * size), text,
+                          fontsize=size, fontname="helv", color=(0.05, 0.25, 0.1))
+    return original, revised
 
 
 def build_comparison_pdf_preview(
@@ -155,12 +106,19 @@ def build_comparison_pdf_preview(
     revised_text: str,
     output_path: str | Path,
     page_index: int = 0,
+    original_text: str | None = None,
 ) -> Path:
     output = Path(output_path)
     if original_pdf_path and Path(original_pdf_path).exists():
         source_doc = fitz.open(str(original_pdf_path))
-        target_page_index = max(0, min(page_index, len(source_doc) - 1))
+        if not 0 <= page_index < len(source_doc):
+            source_doc.close()
+            raise ValueError("Deze PDF-pagina bestaat niet. Upload het document opnieuw.")
+        target_page_index = page_index
         src_page = source_doc[target_page_index]
+        if original_text is not None and original_text != page_text(src_page):
+            source_doc.close()
+            raise ValueError("De controletekst hoort niet bij deze volledige PDF-pagina. Upload het document opnieuw om per pagina te controleren.")
         page_rect = src_page.rect
         width = float(page_rect.width)
         height = float(page_rect.height)
@@ -168,14 +126,13 @@ def build_comparison_pdf_preview(
         compare_doc = fitz.open()
         compare_page = compare_doc.new_page(width=width * 2 + 40, height=height)
 
-        pix = src_page.get_pixmap(matrix=fitz.Matrix(1.0, 1.0))
-        compare_page.insert_image(fitz.Rect(0, 0, width, height), stream=pix.tobytes("png"))
-
-        revised_page = fitz.open()
-        revised_page.new_page(width=width, height=height)
-        _render_revised_page_text(revised_page[0], src_page, revised_text)
-        revised_pix = revised_page[0].get_pixmap(matrix=fitz.Matrix(1.0, 1.0))
-        compare_page.insert_image(fitz.Rect(width + 20, 0, width * 2 + 20, height), stream=revised_pix.tobytes("png"))
+        original, revised = _comparison_pages(source_doc, target_page_index, revised_text)
+        if original[0].get_contents():
+            compare_page.show_pdf_page(fitz.Rect(0, 0, width, height), original, 0)
+        if revised[0].get_contents():
+            compare_page.show_pdf_page(fitz.Rect(width + 20, 0, width * 2 + 20, height), revised, 0)
+        original.close()
+        revised.close()
 
         compare_doc.save(str(output))
         compare_doc.close()
