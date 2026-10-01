@@ -1,0 +1,127 @@
+"""Run with .venv/bin/python tests/browser_sensitivity.py after installing Chromium."""
+import copy
+import os
+from pathlib import Path
+import socket
+import subprocess
+import sys
+import time
+
+import fitz
+import httpx
+from playwright.sync_api import sync_playwright, expect
+
+ROOT = Path(__file__).resolve().parents[1]
+TEXT = 'De mijne is zeker betrouwbaar. Een spelfoutt.'
+DOUBTFUL = {
+    'rule_id': 'NL_SIMPLE_REPLACE_MIJNE', 'message': 'Misschien bedoelt u mijn.',
+    'offset': TEXT.index('mijne'), 'length': 5,
+    'replacements': [{'value': 'mijn'}, {'value': 'mijne'}],
+    'requires_confirmation': True, 'accepted': False,
+}
+SPELLING = {
+    'rule_id': 'MORFOLOGIK_RULE_NL_NL', 'message': 'Mogelijke spelfout.',
+    'offset': TEXT.index('spelfoutt'), 'length': 9,
+    'replacements': [{'value': 'spelfout'}],
+    'requires_confirmation': False, 'accepted': True,
+}
+
+
+def run():
+    with socket.socket() as sock:
+        sock.bind(('127.0.0.1', 0))
+        port = sock.getsockname()[1]
+    server = subprocess.Popen([sys.executable, '-m', 'http.server', str(port), '--bind', '127.0.0.1',
+                               '--directory', str(ROOT / 'app')], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        url = f'http://127.0.0.1:{port}'
+        for _ in range(50):
+            try:
+                if httpx.get(url).status_code == 200: break
+            except httpx.ConnectError:
+                time.sleep(0.1)
+        with sync_playwright() as playwright:
+            browser_env = os.environ.copy()
+            local_libs = ROOT / '.venv/browser-libs/usr/lib/x86_64-linux-gnu'
+            if local_libs.exists():
+                browser_env['LD_LIBRARY_PATH'] = str(local_libs) + ':' + browser_env.get('LD_LIBRARY_PATH', '')
+            font_config = ROOT / '.venv/browser-libs/fonts.conf'
+            if font_config.exists():
+                browser_env['FONTCONFIG_FILE'] = str(font_config)
+            browser = playwright.chromium.launch(env=browser_env)
+            page = browser.new_page(viewport={'width': 1280, 'height': 1000})
+            errors = []
+            page.on('pageerror', lambda error: errors.append(str(error)))
+            mode = ['cautious']
+            comparisons = []
+
+            def upload(route):
+                assert f'\r\n{mode[0]}\r\n' in route.request.post_data
+                issues = copy.deepcopy([SPELLING] if mode[0] == 'cautious' else [DOUBTFUL, SPELLING])
+                route.fulfill(json={
+                    'file_name': 'sample.pdf', 'stored_name': 'sample.pdf', 'text': TEXT,
+                    'sensitivity': mode[0], 'issues': issues,
+                    'chunks': [{'id': 1, 'page_index': 0, 'text': TEXT, 'start': 0, 'issues': issues, 'approved': False}],
+                })
+
+            def comparison(route):
+                comparisons.append(route.request.post_data_json)
+                with fitz.open() as doc:
+                    doc.new_page()
+                    route.fulfill(content_type='application/pdf', body=doc.tobytes())
+
+            page.route('**/upload', upload)
+            page.route('**/approve-chunk', lambda route: route.fulfill(json={'approved': True}))
+            page.route('**/comparison-pdf', comparison)
+            page.goto(url + '/templates/index.html')
+            expect(page.locator('#sensitivity')).to_have_value('cautious')
+            page.locator('#file-input').set_input_files({'name': 'sample.pdf', 'mimeType': 'application/pdf', 'buffer': b'test'})
+            page.get_by_role('button', name='Document controleren', exact=True).click()
+            expect(page.locator('.chunk-issue-item')).to_have_count(1)
+            page.get_by_role('button', name='PDF vergelijken', exact=True).click()
+            expect(page.locator('#pdf-preview-panel')).to_be_visible()
+            assert 'De mijne' in comparisons[-1]['revised_text']
+            assert 'spelfoutt' not in comparisons[-1]['revised_text']
+
+            page.locator('#review-settings-btn').click()
+            mode[0] = 'strict'
+            page.locator('#sensitivity').select_option('strict')
+            page.reload()
+            expect(page.locator('#sensitivity')).to_have_value('strict')
+            page.locator('#file-input').set_input_files({'name': 'sample.pdf', 'mimeType': 'application/pdf', 'buffer': b'test'})
+            page.get_by_role('button', name='Document controleren', exact=True).click()
+            expect(page.locator('.chunk-issue-item')).to_have_count(2)
+            choice = page.locator('.chunk-issue-item').first.locator('input[type=checkbox]')
+            expect(choice).not_to_be_checked()
+            expect(page.locator('.compare-column.revised')).to_contain_text('De mijne')
+            # Approving a page must not accept its doubtful suggestions in bulk.
+            page.get_by_role('button', name='Deel goedkeuren', exact=True).click()
+            expect(choice).not_to_be_checked()
+            page.get_by_role('button', name='PDF vergelijken', exact=True).click()
+            expect(page.locator('#pdf-preview-panel')).to_be_visible()
+            assert 'De mijne' in comparisons[-1]['revised_text']
+
+            choice.check()
+            expect(page.locator('#pdf-preview-panel')).to_be_hidden()
+            expect(page.locator('.compare-column.revised')).to_contain_text('De mijn is')
+            page.get_by_role('button', name='PDF vergelijken', exact=True).click()
+            expect(page.locator('#pdf-preview-panel')).to_be_visible()
+            assert 'De mijn is' in comparisons[-1]['revised_text']
+
+            page.locator('.chunk-issue-item').first.locator('select').select_option('1')
+            expect(page.locator('.compare-column.revised')).to_contain_text('De mijne')
+            choice.uncheck()
+            page.locator('.chunk-issue-item').nth(1).locator('input').uncheck()
+            page.get_by_role('button', name='PDF vergelijken', exact=True).click()
+            expect(page.locator('#pdf-preview-panel')).to_be_visible()
+            assert comparisons[-1]['revised_text'] == TEXT
+            assert not errors, errors
+            browser.close()
+            print('Browser: default mode, recheck, opt-in, alternatives, undo and PDF payloads passed.')
+    finally:
+        server.terminate()
+        server.wait(timeout=10)
+
+
+if __name__ == '__main__':
+    run()

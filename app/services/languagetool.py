@@ -1,18 +1,45 @@
 from __future__ import annotations
 
-import json
-import re
 from typing import Any
 
 import httpx
 
+from app.services.layout_protection import filter_layout_suggestion
+
 
 class LanguageToolClient:
-    def __init__(self, base_url: str, timeout: float = 20.0, max_chars_per_request: int = 15000):
+    def __init__(self, base_url: str, timeout: float = 20.0, max_chars_per_request: int = 15000, sensitivity: str = "cautious"):
+        if sensitivity not in {"cautious", "normal", "strict"}:
+            raise ValueError("Onbekende gevoeligheid")
+        self.sensitivity = sensitivity
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.max_chars_per_request = max_chars_per_request
         self.check_url = f"{self.base_url}/v2/check"
+
+    @staticmethod
+    def issue_kind(match: dict[str, Any]) -> str:
+        rule = match.get("rule", {})
+        rule_id = rule.get("id", "")
+        category = rule.get("category", {}).get("id", "")
+        issue_type = rule.get("issueType", "")
+        # LanguageTool labels these word-choice guesses as misspellings too.
+        # Check them first: "de mijne" is valid despite NL_SIMPLE_REPLACE_MIJNE.
+        if category in {"VERGISSINGEN", "CONFUSED_WORDS", "STYLE", "REDUNDANCY"} or rule_id.startswith("NL_SIMPLE_REPLACE"):
+            return "suggestion"
+        if issue_type in {"style", "register", "locale", "non-conformance"}:
+            return "suggestion"
+        if category in {"PUNCTUATION", "TYPOGRAPHY", "GRAMMAR", "GRAMMATICA", "CASING", "WHITESPACE"} or issue_type in {"grammar", "typographical", "whitespace"}:
+            return "grammar"
+        if issue_type == "misspelling" or category == "TYPOS":
+            return "spelling"
+        # Unknown categories should never become automatic corrections.
+        return "suggestion"
+
+    def includes_issue(self, match: dict[str, Any]) -> bool:
+        kind = self.issue_kind(match)
+        return (self.sensitivity == "strict" or kind == "spelling"
+                or (self.sensitivity == "normal" and kind == "grammar"))
 
     def _split_text(self, text: str) -> list[str]:
         if not text.strip():
@@ -35,7 +62,6 @@ class LanguageToolClient:
         payload = {
             "text": chunk,
             "language": language,
-            "enabledRules": "doubled_words,grammar,spelling,punctuation,style",
         }
 
         try:
@@ -47,7 +73,8 @@ class LanguageToolClient:
             )
             response.raise_for_status()
             data = response.json()
-            return data.get("matches", [])
+            matches = (filter_layout_suggestion(match, chunk) for match in data.get("matches", []))
+            return [match for match in matches if match is not None and self.includes_issue(match)]
         except httpx.HTTPError as exc:
             raise RuntimeError(f"LanguageTool niet bereikbaar op {self.check_url}: {exc}") from exc
 
@@ -61,6 +88,9 @@ class LanguageToolClient:
         for chunk in self._split_text(text):
             matches = self._request_chunk(chunk, language=language)
             for match in matches:
+                match = filter_layout_suggestion(match, text, text_offset)
+                if match is None:
+                    continue
                 mutated = dict(match)
                 offset = int(mutated.get("offset", 0))
                 mutated["offset"] = offset + text_offset
@@ -83,6 +113,9 @@ class LanguageToolClient:
             matches = self._request_chunk(chunk, language=language)
             normalized_matches = []
             for match in matches:
+                match = filter_layout_suggestion(match, text, total_offset)
+                if match is None:
+                    continue
                 normalized = self.normalize_issue(match)
                 offset = int(match.get("offset", 0))
                 normalized["offset"] = offset + total_offset
@@ -141,12 +174,16 @@ class LanguageToolClient:
                 "short_description": replacement.get("shortDescription", ""),
             })
 
-        category_name = match.get("category", {}).get("name", "unknown")
+        kind = self.issue_kind(match)
+        category_name = match.get("rule", {}).get("category", {}).get("name", "unknown")
         rule_id = match.get("rule", {}).get("id", "unknown")
         display_category = self._humanize_issue_label(category_name if category_name and category_name.lower() != "unknown" else rule_id)
         display_rule = self._humanize_issue_label(rule_id if rule_id and rule_id.lower() != "unknown" else category_name)
 
         return {
+            "kind": kind,
+            "requires_confirmation": kind != "spelling",
+            "accepted": kind == "spelling",
             "message": match.get("message", ""),
             "short_message": match.get("shortMessage", ""),
             "category": category_name,

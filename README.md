@@ -140,6 +140,40 @@ UPLOAD_DIR="$VKV_TEST_DIR/uploads" TEMP_DIR="$VKV_TEST_DIR/temporary" .venv/bin/
 De uploadtest gebruikt een draaiende lokale LanguageTool-instantie, standaard
 op `http://127.0.0.1:8010`. Stel zo nodig `LANGUAGETOOL_URL` in.
 
+## Gevoeligheid
+
+Kies vóór het uploaden **Voorzichtig** (standaard), **Normaal** of **Streng**.
+Voorzichtig toont spelling en typefouten. Normaal voegt grammatica en
+interpunctie toe. Streng toont ook stijl, woordkeuzes en overige suggesties.
+De browser onthoudt uw gekozen stand. Dit zijn filters op regelsoorten, geen zekerheidsscores. Woordvervangingen uit
+de categorie Vergissingen, zoals `mijne` → `mijn`, verschijnen alleen bij Streng.
+
+Spellingssuggesties staan vooraf aangevinkt. Overige suggesties moet u per stuk
+aankruisen bij **Overnemen**. U kunt elke suggestie uitvinken of een andere
+vervanging kiezen. Alleen aangevinkte suggesties verschijnen als wijzigingen
+in de tekst- en PDF-vergelijking. Een heel deel goedkeuren neemt twijfelachtige
+suggesties niet automatisch over. Na een gewijzigde keuze maakt **PDF vergelijken**
+een nieuwe weergave. Keuzes gelden voor de huidige controle; opnieuw controleren
+begint met nieuwe keuzes.
+
+Via **Gevoeligheid wijzigen / opnieuw controleren** kunt u hetzelfde bestand
+met een andere stand opnieuw laten controleren.
+
+Voor de afzonderlijke browsertest:
+
+```bash
+.venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/python -m playwright install chromium
+.venv/bin/python tests/browser_sensitivity.py
+```
+
+Deze test gebruikt een tijdelijke lokale webserver en vaste controlesuggesties.
+
+Woordafbrekingen en suggesties om woorden samen te voegen of anders te splitsen
+worden in alle standen overgeslagen. Ook losse fragmenten van afgebroken woorden
+blijven ongemoeid. De PDF-vergelijking beschermt deze afbrekingen bovendien bij
+verzoeken vanuit een oude browsersessie.
+
 ## Privacy
 
 - Geen externe API's

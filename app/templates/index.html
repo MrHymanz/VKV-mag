@@ -67,6 +67,14 @@
             />
             <span>Sleep hier uw document of klik om een bestand te kiezen</span>
           </label>
+          <label class="sensitivity-label" for="sensitivity">Gevoeligheid</label>
+          <select id="sensitivity" name="sensitivity" aria-describedby="sensitivity-help">
+            <option value="cautious" selected>Voorzichtig — spelling en typefouten</option>
+            <option value="normal">Normaal — ook grammatica en interpunctie</option>
+            <option value="strict">Streng — ook stijl en woordkeuze</option>
+          </select>
+          <p id="sensitivity-help">Twijfelachtige woordvervangingen worden overgeslagen. Controleer ook spellingssuggesties voordat u een deel goedkeurt.</p>
+          <p>Woordafbrekingen en suggesties om woorden samen te voegen of anders te splitsen worden in alle standen overgeslagen.</p>
           <button type="submit">Document controleren</button>
         </form>
         <div id="status" class="status" aria-live="polite"></div>
@@ -75,6 +83,8 @@
       <section class="result-panel card-panel" id="result-panel">
         <div class="panel-kicker">Resultaat</div>
         <h3>Documenttekst</h3>
+        <p id="review-settings" class="is-hidden"></p>
+        <button id="review-settings-btn" class="secondary is-hidden" type="button">Gevoeligheid wijzigen / opnieuw controleren</button>
         <textarea id="document-text" readonly></textarea>
         <div id="chunk-review" class="chunk-review" aria-live="polite"></div>
         <div class="actions">

@@ -7,6 +7,7 @@ from pathlib import Path
 import fitz
 
 from app.parsers.pdf_parser import page_text
+from app.services.layout_protection import changes_word_break, overlaps_break
 
 
 def _wrap_text_for_render(text: str, max_chars_per_line: int = 84) -> list[str]:
@@ -44,11 +45,25 @@ def _comparison_pages(source_doc: fitz.Document, page_index: int, revised_text: 
     # Preserve punctuation and capitalisation: those may themselves be corrections.
     tokens = re.findall(r"\S+", revised_text)
     matcher = difflib.SequenceMatcher(None, [word[4] for word in words], tokens, autojunk=False)
+    source_text = " ".join(word[4] for word in words)
+    offsets = []
+    cursor = 0
+    for word in words:
+        offsets.append(cursor)
+        cursor += len(word[4]) + 1
     replacements = []
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
             continue
         removed = words[i1:i2]
+        start = offsets[i1] if i1 < len(offsets) else len(source_text)
+        end = offsets[i2 - 1] + len(words[i2 - 1][4]) if removed else start
+        # Also protect requests from an older browser session: never redraw
+        # editorial word breaks, even if the submitted text joins them.
+        if overlaps_break(source_text, start, end) or changes_word_break(
+            " ".join(word[4] for word in removed), " ".join(tokens[j1:j2])
+        ):
+            continue
         for word in removed:
             rect = fitz.Rect(word[:4])
             _highlight(left, rect, (1, 0.2, 0.2))

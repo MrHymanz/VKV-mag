@@ -1,5 +1,25 @@
 const uploadForm = document.getElementById('upload-form');
 const fileInput = document.getElementById('file-input');
+const sensitivitySelect = document.getElementById('sensitivity');
+const sensitivityHelp = document.getElementById('sensitivity-help');
+const reviewSettings = document.getElementById('review-settings');
+const reviewSettingsBtn = document.getElementById('review-settings-btn');
+const sensitivityLabels = { cautious: 'Voorzichtig', normal: 'Normaal', strict: 'Streng' };
+const sensitivityDescriptions = {
+    cautious: 'Twijfelachtige woordvervangingen worden overgeslagen. Controleer ook spellingssuggesties voordat u een deel goedkeurt.',
+    normal: 'Grammatica en interpunctie worden ook gecontroleerd. Deze suggesties neemt u alleen over door ze aan te vinken.',
+    strict: 'Ook stijl en mogelijke woordkeuzes worden getoond. Twijfelachtige suggesties blijven ongewijzigd totdat u ze aanvinkt.',
+};
+try {
+    const savedSensitivity = localStorage.getItem('vkv-sensitivity');
+    if (Object.hasOwn(sensitivityLabels, savedSensitivity)) sensitivitySelect.value = savedSensitivity;
+} catch (_) { /* Storage can be disabled in the browser. */ }
+sensitivityHelp.textContent = sensitivityDescriptions[sensitivitySelect.value];
+sensitivitySelect.addEventListener('change', () => {
+    try { localStorage.setItem('vkv-sensitivity', sensitivitySelect.value); } catch (_) {}
+
+    sensitivityHelp.textContent = sensitivityDescriptions[sensitivitySelect.value];
+});
 const statusBox = document.getElementById('status');
 const issueList = document.getElementById('issue-list');
 const documentText = document.getElementById('document-text');
@@ -13,9 +33,11 @@ const pdfPreviewFrame = document.getElementById('pdf-preview-frame');
 function setReviewMode(enabled) {
     document.body.classList.toggle('review-mode', enabled);
     if (enabled) {
+        document.getElementById('result-panel').appendChild(statusBox);
         uploadPanel?.classList.add('is-hidden');
         issuesPanel?.classList.add('is-hidden');
     } else {
+        uploadPanel?.appendChild(statusBox);
         uploadPanel?.classList.remove('is-hidden');
         issuesPanel?.classList.remove('is-hidden');
     }
@@ -27,54 +49,52 @@ let currentStoredName = '';
 let reviewChunks = [];
 let currentChunkIndex = 0;
 
-function buildRevisedChunkText(chunk) {
-    const chunkText = chunk && typeof chunk.text === 'string' ? chunk.text : '';
-    if (!chunkText || !Array.isArray(chunk.issues) || chunk.issues.length === 0) {
-        return chunkText;
-    }
+let previewVersion = 0;
+function invalidatePdfPreview() {
+    previewVersion += 1;
+    pdfPreviewPanel?.classList.add('is-hidden');
+    pdfPreviewFrame?.removeAttribute('src');
+}
 
-    const edits = [...chunk.issues]
-        .filter((issue) => issue && typeof issue === 'object')
+reviewSettingsBtn.addEventListener('click', () => {
+    setReviewMode(false);
+    sensitivitySelect.focus();
+    uploadPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    statusBox.textContent = 'Kies de gevoeligheid en klik op Document controleren. Uw eerdere keuzes worden bij de nieuwe controle gewist.';
+});
+
+function selectedEdits(text, issues, chunkStart = 0) {
+    const candidates = (issues || [])
+        .filter((issue) => issue.accepted === true)
         .map((issue) => {
-            const chunkStart = Number(chunk.start || 0);
-            const issueOffset = Number(issue.offset || 0);
-            const issueLength = Math.max(Number(issue.length || 0), 0);
-            const start = issueOffset - chunkStart;
-            const end = start + issueLength;
-            if (start < 0 || end > chunkText.length) {
-                return null;
-            }
-            const replacement = issue.replacements && issue.replacements.length ? issue.replacements[0].value : '';
-            const originalSlice = chunkText.slice(start, end);
-            const normalizedOriginal = originalSlice.replace(/\s+/g, ' ').trim();
-            const normalizedReplacement = String(replacement || '').replace(/\s+/g, ' ').trim();
-
-            if (!replacement || normalizedReplacement === normalizedOriginal) {
-                return null;
-            }
-
+            const start = Number(issue.offset) - chunkStart;
+            const end = start + Number(issue.length);
+            const replacement = issue.replacements?.[issue.selectedReplacement ?? 0]?.value;
+            if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || end > text.length
+                || typeof replacement !== 'string' || replacement === text.slice(start, end)) return null;
             return { start, end, replacement };
         })
         .filter(Boolean)
-        .filter((edit) => edit.start >= 0 && edit.end >= edit.start)
         .sort((a, b) => a.start - b.start);
-
-    if (edits.length === 0) {
-        return chunkText;
-    }
-
-    let result = '';
+    const edits = [];
     let cursor = 0;
-
-    for (const edit of edits) {
+    for (const edit of candidates) {
         if (edit.start < cursor) continue;
-        result += chunkText.slice(cursor, edit.start);
-        result += edit.replacement;
+        edits.push(edit);
         cursor = edit.end;
     }
+    return edits;
+}
 
-    result += chunkText.slice(cursor);
-    return result;
+function buildRevisedChunkText(chunk) {
+    const text = chunk?.text || '';
+    let result = '';
+    let cursor = 0;
+    for (const edit of selectedEdits(text, chunk?.issues, Number(chunk?.start || 0))) {
+        result += text.slice(cursor, edit.start) + edit.replacement;
+        cursor = edit.end;
+    }
+    return result + text.slice(cursor);
 }
 
 function escapeHtml(value) {
@@ -82,22 +102,7 @@ function escapeHtml(value) {
 }
 
 function buildDiffMarkup(originalText, revisedText, issues) {
-    const ranges = (issues || [])
-        .map((issue) => {
-            const start = Math.max(0, Number(issue.offset || 0));
-            const end = Math.max(start, Number(issue.length || 0) + start);
-            const replacement = issue.replacements && issue.replacements.length ? issue.replacements[0].value : '';
-            const originalSlice = originalText.slice(start, end);
-            const normalizedOriginal = originalSlice.replace(/\s+/g, ' ').trim();
-            const normalizedReplacement = String(replacement || '').replace(/\s+/g, ' ').trim();
-            if (!replacement || normalizedReplacement === normalizedOriginal) {
-                return null;
-            }
-            return { start, end, replacement };
-        })
-        .filter(Boolean)
-        .filter((range) => range.end > range.start || range.replacement)
-        .sort((a, b) => a.start - b.start);
+    const ranges = selectedEdits(originalText, issues);
 
     const renderOriginal = (baseText) => {
         if (ranges.length === 0) {
@@ -127,7 +132,7 @@ function buildDiffMarkup(originalText, revisedText, issues) {
 
         ranges.forEach(({ start, end, replacement }) => {
             html += escapeHtml(baseText.slice(cursor, start));
-            html += `<span class="diff-added">${escapeHtml(replacement || baseText.slice(start, end))}</span>`;
+            html += `<span class="diff-added">${escapeHtml(replacement)}</span>`;
             cursor = end;
         });
 
@@ -211,6 +216,7 @@ function renderChunks(chunks) {
 
     const pdfCompareBtn = nav.querySelector('#pdf-compare-btn');
     pdfCompareBtn.addEventListener('click', async () => {
+        const requestVersion = previewVersion;
         try {
             const originalText = chunk.text || '';
             const revisedText = buildRevisedChunkText(chunk);
@@ -232,6 +238,7 @@ function renderChunks(chunks) {
             }
 
             const blob = await response.blob();
+            if (requestVersion !== previewVersion) return;
             const url = window.URL.createObjectURL(blob);
             if (pdfPreviewFrame) {
                 pdfPreviewFrame.src = url;
@@ -249,6 +256,7 @@ function renderChunks(chunks) {
             }
             window.setTimeout(() => window.URL.revokeObjectURL(url), 10000);
         } catch (error) {
+            if (requestVersion !== previewVersion) return;
             statusBox.textContent = error.message;
             pdfPreviewPanel?.classList.add('is-hidden');
             if (pdfPreviewFrame) pdfPreviewFrame.removeAttribute('src');
@@ -257,6 +265,7 @@ function renderChunks(chunks) {
 
     nav.querySelectorAll('.nav-button:not(#pdf-compare-btn)').forEach((button, index) => {
         button.addEventListener('click', () => {
+            invalidatePdfPreview();
             if (button.textContent === 'Vorige') {
                 if (currentChunkIndex > 0) {
                     currentChunkIndex -= 1;
@@ -325,12 +334,55 @@ function renderChunks(chunks) {
             const rule = issue.display_rule || issue.rule_id || 'algemeen';
             item.innerHTML = `
                 <div class="issue-meta">
-                    <strong>${category}</strong>
-                    <span>${rule}</span>
+                    <strong>${escapeHtml(category)}</strong>
+                    <span>${escapeHtml(rule)}</span>
                 </div>
-                <div class="issue-text">${issue.message || issue.short_message || 'Geen uitleg beschikbaar.'}</div>
-                <div class="issue-suggestion">Suggestie: ${suggestion}</div>
+                <div class="issue-text">${escapeHtml(issue.message || issue.short_message || 'Geen uitleg beschikbaar.')}</div>
+                <div class="issue-suggestion">Suggestie: ${escapeHtml(suggestion)}</div>
             `;
+            if (issue.replacements?.length) {
+                const choice = document.createElement('label');
+                choice.className = 'issue-choice';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = issue.accepted === true;
+                const label = document.createElement('span');
+                const start = issue.offset - (chunk.start || 0);
+                label.textContent = `Overnemen: “${chunk.text.slice(start, start + issue.length)}” →`;
+                const select = document.createElement('select');
+                select.setAttribute('aria-label', 'Vervanging kiezen');
+                issue.replacements.forEach((replacement, index) => {
+                    const option = document.createElement('option');
+                    option.value = index;
+                    option.textContent = replacement.value === '' ? '(verwijderen)' : replacement.value;
+                    select.appendChild(option);
+                });
+                select.value = issue.selectedReplacement ?? 0;
+                const updateChoice = () => {
+                    issue.accepted = checkbox.checked;
+                    issue.selectedReplacement = Number(select.value);
+                    chunk.approved = false;
+                    invalidatePdfPreview();
+                    renderChunks(reviewChunks);
+                    statusBox.textContent = 'Keuze bijgewerkt. Klik op PDF vergelijken om de aangepaste weergave te bekijken.';
+                    if (currentStoredName) {
+                        fetch('/approve-chunk', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ stored_name: currentStoredName, chunk_id: chunk.id, approved: false }),
+                        }).catch(console.error);
+                    }
+                };
+                checkbox.addEventListener('change', updateChoice);
+                select.addEventListener('change', updateChoice);
+                choice.append(checkbox, label);
+                item.append(choice, select);
+                if (issue.requires_confirmation && !issue.accepted) {
+                    const notice = document.createElement('span');
+                    notice.className = 'issue-confirmation';
+                    notice.textContent = 'Niet toegepast — alleen overnemen als deze suggestie hier klopt.';
+                    item.appendChild(notice);
+                }
+            }
             issueListEl.appendChild(item);
         });
     }
@@ -351,9 +403,12 @@ uploadForm.addEventListener('submit', async (event) => {
         return;
     }
 
+    const submitButton = uploadForm.querySelector('button[type=submit]');
+    submitButton.disabled = true;
     statusBox.textContent = 'Document wordt gecontroleerd...';
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('sensitivity', sensitivitySelect.value);
 
     try {
         const response = await fetch('/upload', {
@@ -375,6 +430,10 @@ uploadForm.addEventListener('submit', async (event) => {
         currentFileName = data.file_name;
         currentStoredName = data.stored_name;
         documentText.value = data.text;
+        invalidatePdfPreview();
+        reviewSettings.textContent = `Gevoeligheid: ${sensitivityLabels[data.sensitivity]}. Alleen aangevinkte suggesties worden in de vergelijking toegepast.`;
+        reviewSettings.classList.remove('is-hidden');
+        reviewSettingsBtn.classList.remove('is-hidden');
         setReviewMode(true);
         issueList.innerHTML = '';
         currentChunkIndex = 0;
@@ -393,32 +452,10 @@ uploadForm.addEventListener('submit', async (event) => {
             item.className = 'issue-item';
             item.innerHTML = `
                 <strong>Probleem ${index + 1}: ${issue.category}</strong>
-                <div>${issue.message || issue.short_message || 'Geen uitleg beschikbaar.'}</div>
+                <div>${escapeHtml(issue.message || issue.short_message || 'Geen uitleg beschikbaar.')}</div>
                 <div>Context: ${issue.context || ''}</div>
                 <div>Suggestie: ${issue.replacements.length ? issue.replacements.map(r => r.value).join(', ') : 'Geen suggestie'}</div>
             `;
-            item.addEventListener('click', () => {
-                const start = issue.offset || 0;
-                const length = issue.length || 0;
-                if (!issue.replacements.length) {
-                    return;
-                }
-                const replacement = issue.replacements[0].value;
-                fetch('/apply-correction', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        text: currentDocumentText,
-                        start,
-                        length,
-                        replacement,
-                    }),
-                }).then((res) => res.json()).then((json) => {
-                    currentDocumentText = json.corrected_text;
-                    documentText.value = json.corrected_text;
-                    statusBox.textContent = 'Correctie toegepast.';
-                });
-            });
             issueList.appendChild(item);
         });
 
@@ -426,6 +463,8 @@ uploadForm.addEventListener('submit', async (event) => {
     } catch (error) {
         statusBox.textContent = error.message;
         console.error(error);
+    } finally {
+        submitButton.disabled = false;
     }
 });
 

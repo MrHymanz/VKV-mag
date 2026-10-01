@@ -3,9 +3,9 @@ from __future__ import annotations
 import shutil
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -51,7 +51,10 @@ async def index(request: Request) -> HTMLResponse:
 
 
 @app.post("/upload")
-async def upload_document(file: UploadFile = File(...)) -> dict[str, Any]:
+async def upload_document(
+    file: UploadFile = File(...),
+    sensitivity: Literal["cautious", "normal", "strict"] = Form("cautious"),
+) -> dict[str, Any]:
     if not file.filename:
         raise HTTPException(status_code=400, detail="Bestand ontbreekt.")
 
@@ -75,7 +78,7 @@ async def upload_document(file: UploadFile = File(...)) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="Geen parser beschikbaar voor dit bestandstype.")
 
     parsed = parser.parse(upload_path)
-    lt = LanguageToolClient(base_url=LANGUAGETOOL_URL, timeout=LANGUAGETOOL_TIMEOUT_SECONDS)
+    lt = LanguageToolClient(base_url=LANGUAGETOOL_URL, timeout=LANGUAGETOOL_TIMEOUT_SECONDS, sensitivity=sensitivity)
     try:
         if parsed.file_type == "pdf":
             chunks = []
@@ -108,6 +111,7 @@ async def upload_document(file: UploadFile = File(...)) -> dict[str, Any]:
         "file_name": parsed.file_name,
         "stored_name": upload_path.name,
         "file_type": parsed.file_type,
+        "sensitivity": sensitivity,
         "text": parsed.text,
         "issues": issues,
         "chunks": chunks,
