@@ -156,6 +156,14 @@ suggesties niet automatisch over. Na een gewijzigde keuze maakt **PDF vergelijke
 een nieuwe weergave. Keuzes gelden voor de huidige controle; opnieuw controleren
 begint met nieuwe keuzes.
 
+Met **Niet verbeteren** laat u alleen de huidige plek ongewijzigd.
+**Nergens overnemen** vinkt alle suggesties met dezelfde oorspronkelijke tekst,
+dezelfde gekozen vervanging en dezelfde controleregel uit, op alle pagina’s van
+het huidige document. Andere vervangingen blijven ongemoeid. De goedkeuring van
+betrokken pagina’s vervalt; de PDF wordt bij opnieuw vergelijken bijgewerkt.
+U kunt een afzonderlijke plek weer aanvinken als uitzondering. Deze keuze geldt
+voor de huidige controle en wordt bij een nieuwe upload niet onthouden.
+
 Via **Gevoeligheid wijzigen / opnieuw controleren** kunt u hetzelfde bestand
 met een andere stand opnieuw laten controleren.
 

@@ -63,6 +63,46 @@ reviewSettingsBtn.addEventListener('click', () => {
     statusBox.textContent = 'Kies de gevoeligheid en klik op Document controleren. Uw eerdere keuzes worden bij de nieuwe controle gewist.';
 });
 
+function suggestionKey(chunk, issue) {
+    const start = Number(issue.offset) - Number(chunk.start || 0);
+    const original = chunk.text.slice(start, start + Number(issue.length));
+    const replacement = issue.replacements?.[issue.selectedReplacement ?? 0]?.value;
+    return JSON.stringify([issue.rule_id, original.normalize('NFC'), replacement]);
+}
+
+function updateReviewChoices(chunks, message) {
+    const changedChunks = [...new Set(chunks)];
+    changedChunks.forEach((chunk) => { chunk.approved = false; });
+    invalidatePdfPreview();
+    renderChunks(reviewChunks);
+    statusBox.textContent = message;
+    if (currentStoredName) {
+        Promise.all(changedChunks.map(async (chunk) => {
+            const response = await fetch('/approve-chunk', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ stored_name: currentStoredName, chunk_id: chunk.id, approved: false }),
+            });
+            if (!response.ok) throw new Error('Goedkeuringsstatus kon niet worden opgeslagen.');
+        })).catch((error) => { statusBox.textContent = `${message} ${error.message}`; });
+    }
+}
+
+function declineEverywhere(sourceChunk, sourceIssue) {
+    const key = suggestionKey(sourceChunk, sourceIssue);
+    const affected = [];
+    let count = 0;
+    for (const chunk of reviewChunks) {
+        for (const issue of chunk.issues || []) {
+            if (suggestionKey(chunk, issue) !== key) continue;
+            issue.accepted = false;
+            issue.rejectedEverywhere = true;
+            affected.push(chunk);
+            count += 1;
+        }
+    }
+    updateReviewChoices(affected, `Deze suggestie wordt op ${count} plekken in dit document niet overgenomen. Klik op PDF vergelijken voor de bijgewerkte weergave.`);
+}
+
 function selectedEdits(text, issues, chunkStart = 0) {
     const candidates = (issues || [])
         .filter((issue) => issue.accepted === true)
@@ -361,25 +401,38 @@ function renderChunks(chunks) {
                 const updateChoice = () => {
                     issue.accepted = checkbox.checked;
                     issue.selectedReplacement = Number(select.value);
-                    chunk.approved = false;
-                    invalidatePdfPreview();
-                    renderChunks(reviewChunks);
-                    statusBox.textContent = 'Keuze bijgewerkt. Klik op PDF vergelijken om de aangepaste weergave te bekijken.';
-                    if (currentStoredName) {
-                        fetch('/approve-chunk', {
-                            method: 'POST', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ stored_name: currentStoredName, chunk_id: chunk.id, approved: false }),
-                        }).catch(console.error);
-                    }
+                    issue.rejectedEverywhere = false;
+                    updateReviewChoices([chunk], 'Keuze bijgewerkt. Klik op PDF vergelijken om de aangepaste weergave te bekijken.');
                 };
                 checkbox.addEventListener('change', updateChoice);
                 select.addEventListener('change', updateChoice);
                 choice.append(checkbox, label);
-                item.append(choice, select);
-                if (issue.requires_confirmation && !issue.accepted) {
+                const actions = document.createElement('div');
+                actions.className = 'issue-actions';
+                const decline = document.createElement('button');
+                decline.type = 'button';
+                decline.className = 'secondary';
+                decline.textContent = 'Niet verbeteren';
+                decline.title = 'Alleen deze plek ongewijzigd laten';
+                decline.addEventListener('click', () => {
+                    issue.accepted = false;
+                    issue.rejectedEverywhere = false;
+                    updateReviewChoices([chunk], 'Deze plek blijft ongewijzigd. Andere plekken behouden hun eigen keuze.');
+                });
+                const declineAll = document.createElement('button');
+                declineAll.type = 'button';
+                declineAll.className = 'secondary';
+                declineAll.textContent = 'Nergens overnemen';
+                declineAll.title = 'Dezelfde tekst en vervanging bij deze regel op alle pagina’s uitvinken';
+                declineAll.addEventListener('click', () => declineEverywhere(chunk, issue));
+                actions.append(decline, declineAll);
+                item.append(choice, select, actions);
+                if (!issue.accepted) {
                     const notice = document.createElement('span');
                     notice.className = 'issue-confirmation';
-                    notice.textContent = 'Niet toegepast — alleen overnemen als deze suggestie hier klopt.';
+                    notice.textContent = issue.rejectedEverywhere
+                        ? 'Nergens overgenomen in dit document. U kunt deze plek opnieuw aanvinken als uitzondering.'
+                        : 'Niet toegepast — alleen overnemen als deze suggestie hier klopt.';
                     item.appendChild(notice);
                 }
             }
