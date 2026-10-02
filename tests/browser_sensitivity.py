@@ -56,7 +56,24 @@ def run():
             comparisons = []
 
             def upload(route):
-                assert f'\r\n{mode[0]}\r\n' in route.request.post_data
+                requested_mode = 'cautious' if mode[0] == 'bulk' else mode[0]
+                assert f'\r\n{requested_mode}\r\n' in route.request.post_data
+                if mode[0] == 'bulk':
+                    first = copy.deepcopy(SPELLING)
+                    second = copy.deepcopy(SPELLING)
+                    second['offset'] += len(TEXT) + 1
+                    route.fulfill(json={
+                        'file_name': 'sample.pdf', 'stored_name': 'sample.pdf',
+                        'text': f'{TEXT}\n{TEXT}', 'sensitivity': requested_mode,
+                        'issues': [first, second],
+                        'chunks': [
+                            {'id': 1, 'page_index': 0, 'text': TEXT, 'start': 0,
+                             'issues': [first], 'approved': False},
+                            {'id': 2, 'page_index': 1, 'text': TEXT, 'start': len(TEXT) + 1,
+                             'issues': [second], 'approved': False},
+                        ],
+                    })
+                    return
                 issues = copy.deepcopy([SPELLING] if mode[0] == 'cautious' else [DOUBTFUL, SPELLING])
                 route.fulfill(json={
                     'file_name': 'sample.pdf', 'stored_name': 'sample.pdf', 'text': TEXT,
@@ -115,9 +132,36 @@ def run():
             page.get_by_role('button', name='PDF vergelijken', exact=True).click()
             expect(page.locator('#pdf-preview-panel')).to_be_visible()
             assert comparisons[-1]['revised_text'] == TEXT
+
+            # The local action affects one occurrence. The document-wide action
+            # matches the rule, original text and selected replacement.
+            page.locator('#review-settings-btn').click()
+            mode[0] = 'bulk'
+            page.locator('#sensitivity').select_option('cautious')
+            page.locator('#file-input').set_input_files({
+                'name': 'sample.pdf', 'mimeType': 'application/pdf', 'buffer': b'test',
+            })
+            page.get_by_role('button', name='Document controleren', exact=True).click()
+            first_choice = page.locator('.chunk-issue-item input[type=checkbox]')
+            expect(first_choice).to_be_checked()
+            page.get_by_role('button', name='Nergens overnemen', exact=True).click()
+            expect(first_choice).not_to_be_checked()
+            expect(page.locator('.issue-confirmation')).to_contain_text('Nergens overgenomen')
+            page.get_by_role('button', name='Volgende', exact=True).click()
+            second_choice = page.locator('.chunk-issue-item input[type=checkbox]')
+            expect(second_choice).not_to_be_checked()
+            expect(page.locator('.issue-confirmation')).to_contain_text('Nergens overgenomen')
+
+            # A single occurrence can be enabled again as an exception.
+            second_choice.check()
+            page.get_by_role('button', name='Vorige', exact=True).click()
+            expect(page.locator('.chunk-issue-item input[type=checkbox]')).not_to_be_checked()
+            page.get_by_role('button', name='Volgende', exact=True).click()
+            page.get_by_role('button', name='Niet verbeteren', exact=True).click()
+            expect(page.locator('.chunk-issue-item input[type=checkbox]')).not_to_be_checked()
             assert not errors, errors
             browser.close()
-            print('Browser: default mode, recheck, opt-in, alternatives, undo and PDF payloads passed.')
+            print('Browser: sensitivity, per-place rejection and document-wide rejection passed.')
     finally:
         server.terminate()
         server.wait(timeout=10)
