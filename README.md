@@ -165,6 +165,13 @@ worden in hun eigen formaat opgeslagen. Bij een DOCX-correctie die een
 alineagrens wijzigt verschijnt een melding, omdat die niet met behoud van
 opmaak kan worden verwerkt.
 
+PDF-correcties gebruiken het oorspronkelijke ingesloten lettertype, de kleur,
+lettergrootte, dikte, letterbreedte en letterafstand. Langere correcties schuiven
+volgende woorden zo nodig op met behoud van de woordafstand. Past de tekst niet,
+dan verschijnt een melding in plaats van verkleinde tekst. Ontbreekt een nieuw
+leesteken in het ingesloten font, dan krijgt alleen dat teken een vervangend font
+met dezelfde kleur en grootte; de interface meldt dit bij vergelijken en downloaden.
+
 Met **Niet verbeteren** laat u alleen de huidige plek ongewijzigd.
 **Nergens overnemen** vinkt alle suggesties met dezelfde oorspronkelijke tekst,
 dezelfde gekozen vervanging en dezelfde controleregel uit, op alle pagina’s van

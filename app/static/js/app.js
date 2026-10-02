@@ -284,7 +284,7 @@ function renderChunks(chunks) {
                 pdfPreviewFrame.src = url;
                 pdfPreviewPanel?.classList.remove('is-hidden');
                 pdfPreviewPanel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                statusBox.textContent = `PDF-vergelijking voor deel ${chunk.id} wordt hieronder getoond.`;
+                statusBox.textContent = `PDF-vergelijking voor deel ${chunk.id} wordt hieronder getoond. ${response.headers.get('X-Document-Warning') || ''}`;
             } else {
                 const a = document.createElement('a');
                 a.href = url;
@@ -292,7 +292,7 @@ function renderChunks(chunks) {
                 document.body.appendChild(a);
                 a.click();
                 a.remove();
-                statusBox.textContent = `PDF-vergelijking voor deel ${chunk.id} gedownload.`;
+                statusBox.textContent = `PDF-vergelijking voor deel ${chunk.id} gedownload. ${response.headers.get('X-Document-Warning') || ''}`;
             }
             window.setTimeout(() => window.URL.revokeObjectURL(url), 10000);
         } catch (error) {
@@ -555,7 +555,7 @@ downloadBtn.addEventListener('click', async () => {
         link.click();
         link.remove();
         window.setTimeout(() => window.URL.revokeObjectURL(url), 60000);
-        statusBox.textContent = 'Het document met de aangevinkte correcties is gedownload.';
+        statusBox.textContent = `Het document met de aangevinkte correcties is gedownload. ${response.headers.get('X-Document-Warning') || ''}`;
     } catch (error) {
         statusBox.textContent = error.message;
     } finally {

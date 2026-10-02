@@ -163,10 +163,11 @@ async def create_comparison_pdf(payload: dict[str, Any]) -> FileResponse:
     safe_name = f"{uuid.uuid4().hex}-comparison.pdf"
     preview_path = TEMP_DIR / safe_name
     page_index = int(payload.get("page_index", 0))
+    warnings = []
     try:
         build_comparison_pdf_preview(
             original_pdf_path, revised_text, preview_path,
-            page_index=page_index, original_text=original_text,
+            page_index=page_index, original_text=original_text, warnings=warnings,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -176,6 +177,7 @@ async def create_comparison_pdf(payload: dict[str, Any]) -> FileResponse:
         preview_path,
         media_type="application/pdf",
         filename=f"{document_base}-vergelijking.pdf",
+        headers={"X-Document-Warning": " ".join(dict.fromkeys(warnings))} if warnings else None,
     )
 
 
@@ -191,8 +193,9 @@ async def download_corrected_document(stored_name: str, payload: ExportRequest) 
         raise HTTPException(status_code=404, detail="Document niet gevonden.")
     suffix = file_path.suffix.lower()
     export_path = TEMP_DIR / f"{uuid.uuid4().hex}-gecorrigeerd{suffix}"
+    warnings = []
     try:
-        export_document(file_path, payload.chunks, export_path)
+        export_document(file_path, payload.chunks, export_path, warnings=warnings)
     except ValueError as exc:
         export_path.unlink(missing_ok=True)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -201,7 +204,8 @@ async def download_corrected_document(stored_name: str, payload: ExportRequest) 
         ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     }
     return FileResponse(export_path, media_type=media_types.get(suffix, "application/octet-stream"),
-                        filename=f"{Path(payload.file_name).stem}-gecorrigeerd{suffix}")
+                        filename=f"{Path(payload.file_name).stem}-gecorrigeerd{suffix}",
+                        headers={"X-Document-Warning": " ".join(dict.fromkeys(warnings))} if warnings else None)
 
 
 @app.on_event("shutdown")

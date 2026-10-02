@@ -87,7 +87,7 @@ def _export_docx(source: Path, chunks: list[ExportChunk], output: Path) -> None:
     document.save(output)
 
 
-def export_document(source: Path, chunks: list[ExportChunk], output: Path) -> None:
+def export_document(source: Path, chunks: list[ExportChunk], output: Path, warnings: list[str] | None = None) -> None:
     if source.suffix.lower() == ".pdf":
         with fitz.open(source) as document:
             by_page = {chunk.page_index: chunk for chunk in chunks}
@@ -100,7 +100,9 @@ def export_document(source: Path, chunks: list[ExportChunk], output: Path) -> No
             for index, page in enumerate(document):
                 chunk = by_page[index]
                 if chunk.revised_text != chunk.original_text:
-                    apply_pdf_page_corrections(page, chunk.revised_text)
+                    notes = apply_pdf_page_corrections(page, chunk.revised_text)
+                    if warnings is not None:
+                        warnings.extend(notes)
             document.save(output, garbage=4, deflate=True)
     elif source.suffix.lower() == ".txt":
         original = source.read_text(encoding="utf-8")
