@@ -156,6 +156,15 @@ suggesties niet automatisch over. Na een gewijzigde keuze maakt **PDF vergelijke
 een nieuwe weergave. Keuzes gelden voor de huidige controle; opnieuw controleren
 begint met nieuwe keuzes.
 
+**Gecorrigeerd document downloaden** maakt bij elke klik een nieuw bestand met
+de actuele aangevinkte correcties van alle delen/pagina’s. Uitgevinkte suggesties
+blijven ongewijzigd. De originele upload wordt niet overschreven. PDF-downloads
+behouden hun afzonderlijke pagina’s en bevatten geen rode of groene markeringen;
+de bescherming van woordafbrekingen geldt ook voor de download. TXT en DOCX
+worden in hun eigen formaat opgeslagen. Bij een DOCX-correctie die een
+alineagrens wijzigt verschijnt een melding, omdat die niet met behoud van
+opmaak kan worden verwerkt.
+
 Met **Niet verbeteren** laat u alleen de huidige plek ongewijzigd.
 **Nergens overnemen** vinkt alle suggesties met dezelfde oorspronkelijke tekst,
 dezelfde gekozen vervanging en dezelfde controleregel uit, op alle pagina’s van

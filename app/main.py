@@ -25,6 +25,7 @@ from app.parsers.docx_parser import DocxParser
 from app.parsers.pdf_parser import PdfParser
 from app.parsers.txt_parser import TxtParser
 from app.services.correction_service import apply_correction
+from app.services.document_export import ExportRequest, export_document
 from app.services.languagetool import LanguageToolClient
 from app.services.pdf_preview import build_comparison_pdf_preview
 
@@ -108,7 +109,7 @@ async def upload_document(
     REVIEW_STATES[upload_path.name] = {chunk["id"]: chunk["approved"] for chunk in chunks}
     parsed.issues = issues
     return {
-        "file_name": parsed.file_name,
+        "file_name": Path(file.filename).name,
         "stored_name": upload_path.name,
         "file_type": parsed.file_type,
         "sensitivity": sensitivity,
@@ -180,12 +181,27 @@ async def create_comparison_pdf(payload: dict[str, Any]) -> FileResponse:
 
 @app.get("/download/{stored_name}")
 async def download_document(stored_name: str) -> FileResponse:
-    file_path = UPLOAD_DIR / stored_name
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Document niet gevonden.")
+    raise HTTPException(status_code=409, detail="Ververs de pagina en gebruik de downloadknop om uw gekozen correcties mee te nemen.")
 
-    original_name = file_path.stem
-    return FileResponse(file_path, media_type="application/octet-stream", filename=f"{original_name}-gecorrigeerd{file_path.suffix}")
+
+@app.post("/download/{stored_name}")
+async def download_corrected_document(stored_name: str, payload: ExportRequest) -> FileResponse:
+    file_path = (UPLOAD_DIR / stored_name).resolve()
+    if file_path.parent != UPLOAD_DIR.resolve() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Document niet gevonden.")
+    suffix = file_path.suffix.lower()
+    export_path = TEMP_DIR / f"{uuid.uuid4().hex}-gecorrigeerd{suffix}"
+    try:
+        export_document(file_path, payload.chunks, export_path)
+    except ValueError as exc:
+        export_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    media_types = {
+        ".pdf": "application/pdf", ".txt": "text/plain; charset=utf-8",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }
+    return FileResponse(export_path, media_type=media_types.get(suffix, "application/octet-stream"),
+                        filename=f"{Path(payload.file_name).stem}-gecorrigeerd{suffix}")
 
 
 @app.on_event("shutdown")

@@ -41,7 +41,16 @@ def _comparison_pages(source_doc: fitz.Document, page_index: int, revised_text: 
     revised = fitz.open()
     revised.insert_pdf(source_doc, from_page=page_index, to_page=page_index)
     left, right = original[0], revised[0]
-    words = left.get_text("words")
+    apply_pdf_page_corrections(right, revised_text, original_page=left, highlight=True)
+    return original, revised
+
+
+def apply_pdf_page_corrections(
+    right: fitz.Page, revised_text: str,
+    original_page: fitz.Page | None = None, highlight: bool = False,
+) -> None:
+    """Use the same corrections for the comparison and the clean download."""
+    words = right.get_text("words")
     # Preserve punctuation and capitalisation: those may themselves be corrections.
     tokens = re.findall(r"\S+", revised_text)
     matcher = difflib.SequenceMatcher(None, [word[4] for word in words], tokens, autojunk=False)
@@ -66,7 +75,8 @@ def _comparison_pages(source_doc: fitz.Document, page_index: int, revised_text: 
             continue
         for word in removed:
             rect = fitz.Rect(word[:4])
-            _highlight(left, rect, (1, 0.2, 0.2))
+            if original_page is not None:
+                _highlight(original_page, rect, (1, 0.2, 0.2))
             # Remove only text, leaving pictures and background artwork intact.
             # Font bounding boxes can overlap neighbouring lines in magazines.
             # A narrow strip through the glyph centres avoids removing those lines.
@@ -110,10 +120,11 @@ def _comparison_pages(source_doc: fitz.Document, page_index: int, revised_text: 
     for rect, text in replacements:
         size = min(rect.height / (font.ascender - font.descender),
                    rect.width / max(font.text_length(text, fontsize=1), 0.01))
-        _highlight(right, rect, (0.15, 0.85, 0.3))
+        if highlight:
+            _highlight(right, rect, (0.15, 0.85, 0.3))
         right.insert_text((rect.x0, rect.y0 + font.ascender * size), text,
-                          fontsize=size, fontname="helv", color=(0.05, 0.25, 0.1))
-    return original, revised
+                          fontsize=size, fontname="helv",
+                          color=(0.05, 0.25, 0.1) if highlight else (0, 0, 0))
 
 
 def build_comparison_pdf_preview(

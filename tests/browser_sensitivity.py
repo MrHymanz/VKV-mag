@@ -54,6 +54,7 @@ def run():
             page.on('pageerror', lambda error: errors.append(str(error)))
             mode = ['cautious']
             comparisons = []
+            exports = []
 
             def upload(route):
                 requested_mode = 'cautious' if mode[0] == 'bulk' else mode[0]
@@ -87,9 +88,17 @@ def run():
                     doc.new_page()
                     route.fulfill(content_type='application/pdf', body=doc.tobytes())
 
+            def export(route):
+                assert route.request.method == 'POST'
+                exports.append(route.request.post_data_json)
+                with fitz.open() as doc:
+                    doc.new_page()
+                    route.fulfill(content_type='application/pdf', body=doc.tobytes())
+
             page.route('**/upload', upload)
             page.route('**/approve-chunk', lambda route: route.fulfill(json={'approved': True}))
             page.route('**/comparison-pdf', comparison)
+            page.route('**/download/sample.pdf', export)
             page.goto(url + '/templates/index.html')
             expect(page.locator('#sensitivity')).to_have_value('cautious')
             page.locator('#file-input').set_input_files({'name': 'sample.pdf', 'mimeType': 'application/pdf', 'buffer': b'test'})
@@ -132,6 +141,10 @@ def run():
             page.get_by_role('button', name='PDF vergelijken', exact=True).click()
             expect(page.locator('#pdf-preview-panel')).to_be_visible()
             assert comparisons[-1]['revised_text'] == TEXT
+            with page.expect_download() as download_info:
+                page.locator('#download-btn').click()
+            assert download_info.value.suggested_filename == 'sample-gecorrigeerd.pdf'
+            assert exports[-1]['chunks'][0]['revised_text'] == TEXT
 
             # The local action affects one occurrence. The document-wide action
             # matches the rule, original text and selected replacement.
@@ -142,6 +155,7 @@ def run():
                 'name': 'sample.pdf', 'mimeType': 'application/pdf', 'buffer': b'test',
             })
             page.get_by_role('button', name='Document controleren', exact=True).click()
+            expect(page.locator('.chunk-summary')).to_contain_text('van 2')
             first_choice = page.locator('.chunk-issue-item input[type=checkbox]')
             expect(first_choice).to_be_checked()
             page.get_by_role('button', name='Nergens overnemen', exact=True).click()
@@ -159,6 +173,16 @@ def run():
             page.get_by_role('button', name='Volgende', exact=True).click()
             page.get_by_role('button', name='Niet verbeteren', exact=True).click()
             expect(page.locator('.chunk-issue-item input[type=checkbox]')).not_to_be_checked()
+            with page.expect_download():
+                page.locator('#download-btn').click()
+            assert len(exports[-1]['chunks']) == 2
+            assert all(chunk['revised_text'] == TEXT for chunk in exports[-1]['chunks'])
+            second_choice.check()
+            with page.expect_download():
+                page.locator('#download-btn').click()
+            assert exports[-1]['chunks'][0]['revised_text'] == TEXT
+            assert 'spelfoutt' not in exports[-1]['chunks'][1]['revised_text']
+            assert [chunk['page_index'] for chunk in exports[-1]['chunks']] == [0, 1]
             assert not errors, errors
             browser.close()
             print('Browser: sensitivity, per-place rejection and document-wide rejection passed.')

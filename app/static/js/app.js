@@ -480,7 +480,7 @@ uploadForm.addEventListener('submit', async (event) => {
 
         statusBox.textContent = `Controle afgerond: ${data.issues.length} suggesties. ${chunks.length} delen gecontroleerd.`;
         currentDocumentText = data.text;
-        currentFileName = data.file_name;
+        currentFileName = file.name;
         currentStoredName = data.stored_name;
         documentText.value = data.text;
         invalidatePdfPreview();
@@ -521,9 +521,44 @@ uploadForm.addEventListener('submit', async (event) => {
     }
 });
 
-downloadBtn.addEventListener('click', () => {
-    if (!currentFileName) {
+downloadBtn.addEventListener('click', async () => {
+    if (!currentStoredName) {
         return;
     }
-    window.location.href = `/download/${encodeURIComponent(currentFileName)}`;
+    const fileName = currentFileName;
+    const payload = {
+        file_name: fileName,
+        chunks: reviewChunks.map((chunk) => ({
+            original_text: chunk.text || '',
+            revised_text: buildRevisedChunkText(chunk),
+            page_index: chunk.page_index ?? null,
+            start: chunk.start || 0,
+        })),
+    };
+    downloadBtn.disabled = true;
+    statusBox.textContent = 'Document met de aangevinkte correcties wordt gemaakt...';
+    try {
+        const response = await fetch(`/download/${encodeURIComponent(currentStoredName)}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(typeof error.detail === 'string' ? error.detail : 'Het aangepaste document kon niet worden gemaakt.');
+        }
+        const url = window.URL.createObjectURL(await response.blob());
+        const link = document.createElement('a');
+        link.href = url;
+        const dot = fileName.lastIndexOf('.');
+        link.download = `${dot < 0 ? fileName : fileName.slice(0, dot)}-gecorrigeerd${dot < 0 ? '' : fileName.slice(dot)}`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+        statusBox.textContent = 'Het document met de aangevinkte correcties is gedownload.';
+    } catch (error) {
+        statusBox.textContent = error.message;
+    } finally {
+        downloadBtn.disabled = false;
+    }
 });
