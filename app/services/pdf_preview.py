@@ -131,7 +131,12 @@ def apply_pdf_page_corrections(
             redactions.append((word, index in changes))
             if not text:
                 continue
-            planned, end_x = typography.plan(glyphs, text, fitz.Point(x, glyphs[0].origin.y))
+            # Word rectangles include the sloping ascenders/descenders. Anchor
+            # text at its actual baseline, not at that rectangle's left edge.
+            shift = x - word[0]
+            dx, dy = glyphs[0].direction
+            origin = glyphs[0].origin + fitz.Point(shift, shift * dy / dx)
+            planned, end_x = typography.plan(glyphs, text, origin)
             replacements.extend(planned)
             if index in changes:
                 highlights.append(fitz.Rect(x, word[1], end_x, word[3]))

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import difflib
+import math
 import re
 import statistics
 import unicodedata
@@ -46,6 +47,7 @@ class DrawGlyph:
     color: tuple
     opacity: float
     render_mode: int
+    direction: tuple
 
 
 class PageTypography:
@@ -82,7 +84,7 @@ class PageTypography:
         glyphs = self.word_glyphs.get(tuple(word[5:8]), [])
         if not glyphs or "".join(g.text for g in glyphs) != word[4]:
             raise ValueError(f'De opmaak van “{word[4]}” kan niet betrouwbaar worden gelezen. Vink deze correctie uit.')
-        if any(abs(g.direction[0] - 1) > 0.001 or abs(g.direction[1]) > 0.001 for g in glyphs):
+        if any(abs(math.atan2(g.direction[1], g.direction[0])) > math.radians(5) for g in glyphs):
             raise ValueError(f'De gedraaide tekst “{word[4]}” kan niet met behoud van opmaak worden aangepast. Vink deze correctie uit.')
         return glyphs
 
@@ -143,15 +145,18 @@ class PageTypography:
             face = self.original_face(glyph)
             span = glyph.span
             heights, widths, tracking = [], [], []
+            dx, dy = glyph.direction
+            unrotate = fitz.Matrix(dx, -dy, dy, dx, 0, 0)
             for char in span["chars"]:
                 unit_width = face.font.text_length(char["c"], fontsize=1)
-                box = fitz.Rect(char["bbox"])
+                box = (fitz.recover_char_quad(glyph.direction, span, char) * unrotate).rect
                 if unit_width > 0 and not char["c"].isspace():
                     widths.append(box.width / unit_width)
                     heights.append(box.height / (span["ascender"] - span["descender"]))
             for first, second in zip(span["chars"], span["chars"][1:]):
                 if not first["c"].isspace() and not second["c"].isspace():
-                    tracking.append(second["origin"][0] - first["bbox"][2])
+                    first_box = (fitz.recover_char_quad(glyph.direction, span, first) * unrotate).rect
+                    tracking.append((fitz.Point(second["origin"]) * unrotate).x - first_box.x1)
             self.metrics[key] = (statistics.median(widths) if widths else span["size"],
                                  statistics.median(heights) if heights else span["size"],
                                  statistics.median(tracking) if tracking else 0)
@@ -168,6 +173,7 @@ class PageTypography:
                 reference = min(i1 + offset, i2 - 1) if i2 > i1 else max(0, i1 - 1)
                 styles[index] = glyphs[source_indices[reference]]
         origin = origin or glyphs[0].origin
+        dx, dy = glyphs[0].direction
         x = origin.x
         planned = []
         last_tracking = 0
@@ -179,11 +185,12 @@ class PageTypography:
             color = fitz.sRGB_to_pdf(source.span["color"])
             flags = source.span.get("char_flags", 16)
             mode = 2 if flags & 16 and flags & 32 else (1 if flags & 32 else 0)
-            planned.append(DrawGlyph(char, fitz.Point(x, origin.y + source.origin.y - glyphs[0].origin.y),
+            baseline_offset = (source.origin.y - glyphs[0].origin.y) - (source.origin.x - glyphs[0].origin.x) * dy / dx
+            planned.append(DrawGlyph(char, fitz.Point(x, origin.y + (x - origin.x) * dy / dx + baseline_offset),
                                      face, size, horizontal / size, vertical / size, color,
-                                     source.span.get("alpha", 255) / 255, mode))
-            x += face.font.text_length(char, fontsize=horizontal) + tracking
-            last_tracking = tracking
+                                     source.span.get("alpha", 255) / 255, mode, source.direction))
+            x += (face.font.text_length(char, fontsize=horizontal) + tracking) * dx
+            last_tracking = tracking * dx
         return planned, x - last_tracking
 
     def render(self, glyphs: list[DrawGlyph]) -> None:
@@ -193,8 +200,11 @@ class PageTypography:
             if face.resource not in installed:
                 self.page.insert_font(fontname=face.resource, fontbuffer=face.data)
                 installed.add(face.resource)
+            dx, dy = glyph.direction
+            matrix = fitz.Matrix(glyph.scale_x * dx, -glyph.scale_x * dy,
+                                 glyph.scale_y * dy, glyph.scale_y * dx, 0, 0)
             self.page.insert_text(glyph.origin, glyph.text, fontsize=glyph.size,
                                   fontname=face.resource, color=glyph.color,
                                   fill=glyph.color, render_mode=glyph.render_mode,
                                   fill_opacity=glyph.opacity, stroke_opacity=glyph.opacity,
-                                  morph=(glyph.origin, fitz.Matrix(glyph.scale_x, glyph.scale_y)))
+                                  morph=(glyph.origin, matrix))

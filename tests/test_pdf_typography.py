@@ -12,6 +12,26 @@ def word_style(page, text):
     return typography.glyphs(word)
 
 
+@pytest.mark.parametrize('angle', [0.077584, -0.077584, 3, -3])
+def test_slightly_rotated_text_preserves_angle_style_and_baseline(angle):
+    with fitz.open() as doc:
+        page = doc.new_page()
+        origin = fitz.Point(100, 150)
+        page.insert_text(origin, 'APK controle', fontsize=14, fontname='hebo',
+                         color=(0.7, 0.3, 0.1), morph=(origin, fitz.Matrix(angle)))
+        before = word_style(page, 'APK')[0]
+        apply_pdf_page_corrections(page, 'apk controle')
+        after = word_style(page, 'apk')[0]
+        assert after.direction == pytest.approx(before.direction, abs=0.00002)
+        assert after.origin.x == pytest.approx(before.origin.x, abs=0.01)
+        assert after.origin.y == pytest.approx(before.origin.y, abs=0.01)
+        assert after.span['font'] == before.span['font']
+        assert after.span['color'] == before.span['color']
+        assert after.span['size'] == pytest.approx(before.span['size'], abs=0.005)
+        assert 'APK' not in page.get_text()
+        assert 'controle' in page.get_text()
+
+
 @pytest.mark.parametrize('font', ['helv', 'hebi', 'tibi'])
 def test_embedded_font_weight_size_color_opacity_and_baseline_preserved(font):
     with fitz.open() as doc:
