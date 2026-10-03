@@ -206,6 +206,13 @@ en klik op **Lettertype uploaden**. Daarna kunt u opnieuw vergelijken of downloa
 de gekozen correcties blijven behouden. Het font blijft beschikbaar voor volgende
 documenten. Een verkeerde fontvariant of ongeldig bestand wordt geweigerd.
 
+Bij een afwijkende interne naam kunt u expliciet **Toch gebruiken** aanvinken.
+Dit bewaart een koppeling tussen het gevraagde font en het geüploade bestand,
+ook voor volgende documenten. Het bestand moet nog steeds een geldig font zijn
+en de benodigde letters bevatten. Fontfouten vermelden de PDF-pagina (het deel
+in de controle, niet het gedrukte paginanummer) en de betrokken tekstcorrectie.
+U kunt die correctie uitzetten om de oorspronkelijke tekst te behouden.
+
 Volledige redactiefonts kunnen als `.otf` of `.ttf` in `storage/fonts/` worden
 geplaatst. De PDF-verwerking gebruikt deze automatisch wanneer een benodigde
 letter ontbreekt in de ingesloten PDF-fonts. De interne fontnaam, inclusief

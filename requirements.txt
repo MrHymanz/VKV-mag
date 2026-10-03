@@ -8,3 +8,4 @@ PyMuPDF
 httpx
 pytest
 reportlab
+fonttools

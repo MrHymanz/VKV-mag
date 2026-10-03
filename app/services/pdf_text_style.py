@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import difflib
 import math
+import json
+import hashlib
+from io import BytesIO
 import re
 import statistics
 import unicodedata
@@ -10,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import fitz
+from fontTools.ttLib import TTFont, TTLibError
 
 
 FONT_DIR = Path(__file__).resolve().parents[2] / "storage" / "fonts"
@@ -21,6 +25,10 @@ class MissingFontError(ValueError):
         super().__init__(f'Het lettertype {self.font_name} is niet volledig beschikbaar. Upload het bijbehorende OTF- of TTF-bestand en probeer opnieuw.')
 
 
+def override_path(directory: Path, name: str) -> Path:
+    return directory / ("override-" + hashlib.sha256(_font_key(name).encode()).hexdigest() + ".json")
+
+
 def _font_name(name: str) -> str:
     return re.sub(r"^[A-Z]{6}\+", "", name).removesuffix("-Identity-H")
 
@@ -28,6 +36,21 @@ def _font_name(name: str) -> str:
 def _font_key(name: str) -> str:
     # PDF resource names and PostScript names can differ only in spacing or '-'.
     return re.sub(r"[^a-z0-9]", "", _font_name(name).lower())
+
+
+def font_matches(data: bytes, expected: str, fallback_name: str) -> bool:
+    """Use face-specific names, not family/style labels that can omit Caps."""
+    try:
+        with TTFont(BytesIO(data)) as font:
+            names = {record.toUnicode() for record in font['name'].names
+                     if record.nameID == 6}
+            if not names:
+                names = {record.toUnicode() for record in font['name'].names
+                         if record.nameID == 4}
+    except (TTLibError, KeyError, ValueError, UnicodeError):
+        names = set()
+    return bool(_font_key(expected)) and _font_key(expected) in {
+        _font_key(name) for name in (names or {fallback_name})}
 
 
 @dataclass
@@ -70,6 +93,9 @@ class PageTypography:
         self.metrics = {}
         self.punctuation_fallbacks: set[str] = set()
         self.supplemental_faces: list[Face] | None = None
+        self.correction_context = None
+        self.source_page_index = page.number
+
         # Match the words extractor's block numbers: images must not increment
         # the raw-text block index on illustrated magazine pages.
         flags = fitz.TEXTFLAGS_RAWDICT & ~fitz.TEXT_PRESERVE_IMAGES
@@ -94,10 +120,26 @@ class PageTypography:
     def glyphs(self, word) -> list[Glyph]:
         glyphs = self.word_glyphs.get(tuple(word[5:8]), [])
         if not glyphs or "".join(g.text for g in glyphs) != word[4]:
-            raise ValueError(f'De opmaak van “{word[4]}” kan niet betrouwbaar worden gelezen. Vink deze correctie uit.')
+            raise ValueError(f'De opmaak van “{word[4]}” kan niet betrouwbaar worden gelezen. {self.location()} Vink de bijbehorende correctie uit om de oorspronkelijke tekst te behouden.')
         if any(abs(math.atan2(g.direction[1], g.direction[0])) > math.radians(5) for g in glyphs):
-            raise ValueError(f'De gedraaide tekst “{word[4]}” kan niet met behoud van opmaak worden aangepast. Vink deze correctie uit.')
+            raise ValueError(f'De gedraaide tekst “{word[4]}” kan niet met behoud van opmaak worden aangepast. {self.location()} Vink de bijbehorende correctie uit om de oorspronkelijke tekst te behouden.')
         return glyphs
+
+    def location(self) -> str:
+        location = f'PDF-pagina/deel {self.source_page_index + 1}'
+        if self.correction_context:
+            original, revised = self.correction_context
+            location += f', tekst “{original}” → “{revised}”'
+        return location + '.'
+
+    def missing_font(self, name: str) -> MissingFontError:
+        error = MissingFontError(name)
+        error.page_index = self.source_page_index
+        if self.correction_context:
+            error.args = (f'{error} {self.location()} '
+                          'Vink de bijbehorende correctie uit om deze plek ongewijzigd te laten. '
+                          'Alleen als u de correctie toch wilt uitvoeren zonder passend font, moet de opmaak in het bronbestand worden aangepast.',)
+        return error
 
     def _face(self, entry) -> Face:
         xref = entry[0]
@@ -127,7 +169,7 @@ class PageTypography:
         face = self.supplemental_face(name, glyph.text)
         if face is not None:
             return face
-        raise MissingFontError(name)
+        raise self.missing_font(name)
 
     def face_for(self, glyph: Glyph, text: str) -> Face:
         face = self.original_face(glyph)
@@ -149,6 +191,17 @@ class PageTypography:
         return self.punctuation_face(name, text)
 
     def supplemental_face(self, name: str, text: str) -> Face | None:
+        try:
+            record = json.loads(override_path(FONT_DIR, name).read_text())
+            filename = record['file']
+            if Path(filename).name == filename:
+                data = (FONT_DIR / filename).read_bytes()
+                font = fitz.Font(fontbuffer=data)
+                if all(font.has_glyph(ord(char)) for char in text):
+                    resource = 'VKVoverride' + hashlib.sha256(data).hexdigest()[:16]
+                    return Face(font, resource, data)
+        except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+            pass
         if self.supplemental_faces is None:
             self.supplemental_faces = []
             for path in sorted(FONT_DIR.glob("*")):
@@ -161,7 +214,7 @@ class PageTypography:
                     continue
                 self.supplemental_faces.append(Face(font, f"VKVfull{len(self.supplemental_faces)}", data))
         for candidate in self.supplemental_faces:
-            if (_font_key(candidate.font.name) == _font_key(name)
+            if (font_matches(candidate.data, name, candidate.font.name)
                     and all(candidate.font.has_glyph(ord(char)) for char in text)):
                 return candidate
         return None
@@ -180,7 +233,7 @@ class PageTypography:
             if all(fallback.font.has_glyph(ord(char)) for char in text):
                 self.punctuation_fallbacks.add(text)
                 return fallback
-        raise MissingFontError(name)
+        raise self.missing_font(name)
 
     def measurements(self, glyph: Glyph) -> tuple[float, float, float]:
         key = id(glyph.span)

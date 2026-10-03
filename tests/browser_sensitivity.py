@@ -190,7 +190,11 @@ def run():
             font_input = page.get_by_label('Lettertype MetaBook-Caps toevoegen', exact=False)
             expect(font_input).to_be_visible()
             font_input.set_input_files({'name': 'meta.otf', 'mimeType': 'font/otf', 'buffer': b'font'})
-            page.route('**/fonts/upload', lambda route: route.fulfill(json={'font_name': 'MetaBook-Caps'}))
+            page.get_by_label('Toch gebruiken voor MetaBook-Caps', exact=False).check()
+            def font_upload(route):
+                assert 'name="override"\r\n\r\ntrue' in route.request.post_data
+                route.fulfill(json={'font_name': 'MetaBook-Caps', 'override': True})
+            page.route('**/fonts/upload', font_upload)
             page.get_by_role('button', name='Lettertype uploaden', exact=True).click()
             expect(page.get_by_role('status').filter(has_text='MetaBook-Caps is toegevoegd')).to_be_visible()
             expect(second_choice).to_be_checked()

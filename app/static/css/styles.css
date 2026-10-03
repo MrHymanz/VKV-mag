@@ -567,7 +567,39 @@ body.review-mode #document-text {
     color: var(--navy);
 }
 
+.font-upload-panel {
+    display: grid;
+    gap: 1rem;
+    margin-top: 1rem;
+    padding: 1.25rem;
+    border: 1px solid #d9cdbd;
+    border-radius: 12px;
+    background: #faf7f2;
+    overflow-wrap: anywhere;
+}
+
+.font-upload-panel[hidden] { display: none; }
+.font-upload-field { display: grid; gap: 0.5rem; min-width: 0; }
+.font-upload-field input { width: 100%; min-width: 0; max-width: 100%; }
+.font-upload-override {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+    line-height: 1.5;
+}
+.font-upload-override input {
+    flex: 0 0 auto;
+    width: 1.1rem;
+    height: 1.1rem;
+    margin: 0.2rem 0 0;
+}
+.font-upload-panel > button { justify-self: start; max-width: 100%; }
+.font-upload-panel > p { margin: 0; line-height: 1.5; }
+.font-upload-panel > p:empty { display: none; }
+
 .status {
+    line-height: 1.5;
+    overflow-wrap: anywhere;
     min-height: 1.5rem;
     margin-top: 0.8rem;
     font-size: 0.95rem;

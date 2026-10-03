@@ -33,6 +33,25 @@ def word_style(page, text):
     return typography.glyphs(word)
 
 
+@pytest.mark.parametrize('comparison', [False, True])
+def test_unreadable_layout_reports_original_page_and_edit(monkeypatch, comparison):
+    init = PageTypography.__init__
+    def unreadable(self, page):
+        init(self, page)
+        self.word_glyphs.clear()
+    monkeypatch.setattr(PageTypography, '__init__', unreadable)
+    with fitz.open() as doc:
+        for _ in range(3):
+            doc.new_page().insert_text((40, 70), 'joemman')
+        with pytest.raises(ValueError) as error:
+            if comparison:
+                _comparison_pages(doc, 2, 'Joemman')
+            else:
+                apply_pdf_page_corrections(doc[2], 'Joemman')
+        assert 'PDF-pagina/deel 3' in str(error.value)
+        assert '“joemman” → “Joemman”' in str(error.value)
+
+
 @pytest.mark.parametrize('angle', [0.077584, -0.077584, 3, -3])
 def test_slightly_rotated_text_preserves_angle_style_and_baseline(angle):
     with fitz.open() as doc:

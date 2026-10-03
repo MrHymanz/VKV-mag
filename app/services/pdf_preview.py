@@ -42,7 +42,7 @@ def _comparison_pages(source_doc: fitz.Document, page_index: int, revised_text: 
     revised = fitz.open()
     revised.insert_pdf(source_doc, from_page=page_index, to_page=page_index)
     left, right = original[0], revised[0]
-    notes = apply_pdf_page_corrections(right, revised_text, original_page=left, highlight=True)
+    notes = apply_pdf_page_corrections(right, revised_text, original_page=left, highlight=True, source_page_index=page_index)
     if warnings is not None:
         warnings.extend(notes)
     return original, revised
@@ -50,10 +50,12 @@ def _comparison_pages(source_doc: fitz.Document, page_index: int, revised_text: 
 
 def apply_pdf_page_corrections(
     right: fitz.Page, revised_text: str,
-    original_page: fitz.Page | None = None, highlight: bool = False,
+    original_page: fitz.Page | None = None, highlight: bool = False, source_page_index: int | None = None,
 ) -> list[str]:
     """Use the same corrections for the comparison and the clean download."""
     typography = PageTypography(right)
+    if source_page_index is not None:
+        typography.source_page_index = source_page_index
     words = typography.words
     # Preserve punctuation and capitalisation: those may themselves be corrections.
     tokens = re.findall(r"\S+", revised_text)
@@ -127,6 +129,7 @@ def apply_pdf_page_corrections(
             if index not in changes and abs(x - word[0]) < 0.02:
                 previous_end = word[2]
                 continue
+            typography.correction_context = (word[4], text)
             glyphs = typography.glyphs(word)
             redactions.append((word, index in changes))
             if not text:
@@ -149,7 +152,7 @@ def apply_pdf_page_corrections(
                         and other[1] < last[3] and other[3] > last[1]), default=right.rect.width)
         if previous_end is not None and previous_end > boundary + 0.1:
             changed = " ".join(changes[index] for index in indices if index in changes)
-            raise ValueError(f'De correctie “{changed}” past niet op pagina {right.number + 1} met de oorspronkelijke lettergrootte. Vink deze correctie uit of pas de opmaak in het bronbestand aan.')
+            raise ValueError(f'De correctie “{changed}” past niet op PDF-pagina/deel {typography.source_page_index + 1} met de oorspronkelijke lettergrootte. Vink deze correctie uit of pas de opmaak in het bronbestand aan.')
     # All fonts and available space are checked before removing any text.
     for word, changed in redactions:
         rect = fitz.Rect(word[:4])

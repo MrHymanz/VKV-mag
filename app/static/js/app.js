@@ -22,6 +22,7 @@ sensitivitySelect.addEventListener('change', () => {
 });
 const statusBox = document.getElementById('status');
 const fontUploadPanel = document.createElement('div');
+fontUploadPanel.className = 'font-upload-panel';
 fontUploadPanel.hidden = true;
 let missingFontName = '';
 
@@ -31,7 +32,10 @@ function offerFontUpload(response) {
     missingFontName = name;
     fontUploadPanel.replaceChildren();
     const label = document.createElement('label');
-    label.textContent = `Lettertype ${name} toevoegen (OTF/TTF, maximaal 10 MB): `;
+    label.className = 'font-upload-field';
+    const labelText = document.createElement('span');
+    labelText.textContent = `Lettertype ${name} toevoegen (OTF/TTF, maximaal 10 MB):`;
+    label.appendChild(labelText);
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.otf,.ttf';
@@ -39,6 +43,13 @@ function offerFontUpload(response) {
     const button = document.createElement('button');
     button.type = 'button';
     button.textContent = 'Lettertype uploaden';
+    const overrideLabel = document.createElement('label');
+    overrideLabel.className = 'font-upload-override';
+    const overrideInput = document.createElement('input');
+    overrideInput.type = 'checkbox';
+    const overrideText = document.createElement('span');
+    overrideText.textContent = `Toch gebruiken voor ${name}: ik bevestig dat dit het juiste font is. Deze koppeling geldt ook voor volgende documenten.`;
+    overrideLabel.append(overrideInput, overrideText);
     const message = document.createElement('p');
     message.setAttribute('role', 'status');
     button.addEventListener('click', async () => {
@@ -50,6 +61,7 @@ function offerFontUpload(response) {
         const data = new FormData();
         data.append('file', input.files[0]);
         data.append('expected_font', requestedFont);
+        data.append('override', String(overrideInput.checked));
         button.disabled = true;
         try {
             const response = await fetch('/fonts/upload', { method: 'POST', body: data });
@@ -62,7 +74,7 @@ function offerFontUpload(response) {
             button.disabled = false;
         }
     });
-    fontUploadPanel.append(label, button, message);
+    fontUploadPanel.append(label, overrideLabel, button, message);
     statusBox.insertAdjacentElement('afterend', fontUploadPanel);
     fontUploadPanel.hidden = false;
 }

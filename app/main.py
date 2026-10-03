@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 import uuid
 import hashlib
+import json
 import fitz
 from pathlib import Path
 from typing import Any, Literal
@@ -30,7 +31,7 @@ from app.services.correction_service import apply_correction
 from app.services.document_export import ExportRequest, export_document
 from app.services.languagetool import LanguageToolClient
 from app.services.pdf_preview import build_comparison_pdf_preview
-from app.services.pdf_text_style import FONT_DIR, MissingFontError, _font_key
+from app.services.pdf_text_style import FONT_DIR, MissingFontError, font_matches, override_path
 
 app = FastAPI(title="VKV Documentcontrole", version="0.1.0")
 REVIEW_STATES: dict[str, dict[int, bool]] = {}
@@ -40,7 +41,7 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
 @app.post("/fonts/upload")
-async def upload_font(file: UploadFile = File(...), expected_font: str = Form(...)):
+async def upload_font(file: UploadFile = File(...), expected_font: str = Form(...), override: bool = Form(False)):
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in {".otf", ".ttf"}:
         raise HTTPException(400, "Kies een OTF- of TTF-fontbestand.")
@@ -53,7 +54,9 @@ async def upload_font(file: UploadFile = File(...), expected_font: str = Form(..
         font = fitz.Font(fontbuffer=contents)
     except Exception as exc:
         raise HTTPException(400, "Het fontbestand kan niet worden gelezen.") from exc
-    if not _font_key(expected_font) or _font_key(font.name) != _font_key(expected_font):
+    if not expected_font.strip() or len(expected_font) > 200:
+        raise HTTPException(400, "Ongeldige fontnaam.")
+    if not override and not font_matches(contents, expected_font, font.name):
         raise HTTPException(400, f'Dit bestand bevat {font.name}; verwacht wordt {expected_font}. Kies de juiste variant.')
     FONT_DIR.mkdir(parents=True, exist_ok=True)
     target = FONT_DIR / (hashlib.sha256(contents).hexdigest() + suffix)
@@ -61,9 +64,12 @@ async def upload_font(file: UploadFile = File(...), expected_font: str = Form(..
     try:
         temporary.write_bytes(contents)
         temporary.replace(target)
+        if override:
+            temporary.write_text(json.dumps({'file': target.name, 'expected': expected_font, 'actual': font.name}))
+            temporary.replace(override_path(FONT_DIR, expected_font))
     finally:
         temporary.unlink(missing_ok=True)
-    return {"font_name": font.name}
+    return {"font_name": font.name, "override": override}
 
 PARSER_MAP = {
     ".txt": TxtParser(),
