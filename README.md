@@ -198,6 +198,21 @@ worden in alle standen overgeslagen. Ook losse fragmenten van afgebroken woorden
 blijven ongemoeid. De PDF-vergelijking beschermt deze afbrekingen bovendien bij
 verzoeken vanuit een oude browsersessie.
 
+## Redactiefonts
+
+Bij een ontbrekend of onbruikbaar PDF-lettertype verschijnt bij vergelijken of
+downloaden een uploadveld. Kies het bijbehorende OTF/TTF-bestand (maximaal 10 MB)
+en klik op **Lettertype uploaden**. Daarna kunt u opnieuw vergelijken of downloaden;
+de gekozen correcties blijven behouden. Het font blijft beschikbaar voor volgende
+documenten. Een verkeerde fontvariant of ongeldig bestand wordt geweigerd.
+
+Volledige redactiefonts kunnen als `.otf` of `.ttf` in `storage/fonts/` worden
+geplaatst. De PDF-verwerking gebruikt deze automatisch wanneer een benodigde
+letter ontbreekt in de ingesloten PDF-fonts. De interne fontnaam, inclusief
+gewicht en stijl, moet overeenkomen; alleen de bestandsnaam wijzigen helpt niet.
+De oorspronkelijke kleur, grootte en letterafstand blijven behouden. De map
+wordt via het bestaande storage-volume ook in Docker beschikbaar gemaakt.
+
 ## Privacy
 
 - Geen externe API's

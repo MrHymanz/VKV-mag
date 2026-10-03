@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import shutil
 import uuid
+import hashlib
+import fitz
 from pathlib import Path
 from typing import Any, Literal
 
@@ -28,12 +30,40 @@ from app.services.correction_service import apply_correction
 from app.services.document_export import ExportRequest, export_document
 from app.services.languagetool import LanguageToolClient
 from app.services.pdf_preview import build_comparison_pdf_preview
+from app.services.pdf_text_style import FONT_DIR, MissingFontError, _font_key
 
 app = FastAPI(title="VKV Documentcontrole", version="0.1.0")
 REVIEW_STATES: dict[str, dict[int, bool]] = {}
 
 templates = Jinja2Templates(directory="app/templates")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+
+@app.post("/fonts/upload")
+async def upload_font(file: UploadFile = File(...), expected_font: str = Form(...)):
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in {".otf", ".ttf"}:
+        raise HTTPException(400, "Kies een OTF- of TTF-fontbestand.")
+    contents = await file.read(10 * 1024 * 1024 + 1)
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(413, "Het fontbestand mag maximaal 10 MB groot zijn.")
+    if contents[:4] not in {b"OTTO", b"\x00\x01\x00\x00", b"true"}:
+        raise HTTPException(400, "Dit is geen geldig OTF- of TTF-fontbestand.")
+    try:
+        font = fitz.Font(fontbuffer=contents)
+    except Exception as exc:
+        raise HTTPException(400, "Het fontbestand kan niet worden gelezen.") from exc
+    if not _font_key(expected_font) or _font_key(font.name) != _font_key(expected_font):
+        raise HTTPException(400, f'Dit bestand bevat {font.name}; verwacht wordt {expected_font}. Kies de juiste variant.')
+    FONT_DIR.mkdir(parents=True, exist_ok=True)
+    target = FONT_DIR / (hashlib.sha256(contents).hexdigest() + suffix)
+    temporary = FONT_DIR / (uuid.uuid4().hex + ".tmp")
+    try:
+        temporary.write_bytes(contents)
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return {"font_name": font.name}
 
 PARSER_MAP = {
     ".txt": TxtParser(),
@@ -169,6 +199,8 @@ async def create_comparison_pdf(payload: dict[str, Any]) -> FileResponse:
             original_pdf_path, revised_text, preview_path,
             page_index=page_index, original_text=original_text, warnings=warnings,
         )
+    except MissingFontError as exc:
+        raise HTTPException(status_code=409, detail=str(exc), headers={"X-Missing-Font": exc.font_name}) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -196,6 +228,9 @@ async def download_corrected_document(stored_name: str, payload: ExportRequest) 
     warnings = []
     try:
         export_document(file_path, payload.chunks, export_path, warnings=warnings)
+    except MissingFontError as exc:
+        export_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=409, detail=str(exc), headers={"X-Missing-Font": exc.font_name}) from exc
     except ValueError as exc:
         export_path.unlink(missing_ok=True)
         raise HTTPException(status_code=409, detail=str(exc)) from exc

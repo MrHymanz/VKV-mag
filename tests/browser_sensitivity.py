@@ -141,7 +141,7 @@ def run():
             page.get_by_role('button', name='PDF vergelijken', exact=True).click()
             expect(page.locator('#pdf-preview-panel')).to_be_visible()
             assert comparisons[-1]['revised_text'] == TEXT
-            with page.expect_download() as download_info:
+            with page.expect_download(predicate=lambda download: download.suggested_filename == 'sample-gecorrigeerd.pdf') as download_info:
                 page.locator('#download-btn').click()
             assert download_info.value.suggested_filename == 'sample-gecorrigeerd.pdf'
             assert exports[-1]['chunks'][0]['revised_text'] == TEXT
@@ -173,16 +173,27 @@ def run():
             page.get_by_role('button', name='Volgende', exact=True).click()
             page.get_by_role('button', name='Niet verbeteren', exact=True).click()
             expect(page.locator('.chunk-issue-item input[type=checkbox]')).not_to_be_checked()
-            with page.expect_download():
+            with page.expect_download(predicate=lambda download: download.suggested_filename == 'sample-gecorrigeerd.pdf'):
                 page.locator('#download-btn').click()
             assert len(exports[-1]['chunks']) == 2
             assert all(chunk['revised_text'] == TEXT for chunk in exports[-1]['chunks'])
             second_choice.check()
-            with page.expect_download():
+            with page.expect_download(predicate=lambda download: download.suggested_filename == 'sample-gecorrigeerd.pdf'):
                 page.locator('#download-btn').click()
             assert exports[-1]['chunks'][0]['revised_text'] == TEXT
             assert 'spelfoutt' not in exports[-1]['chunks'][1]['revised_text']
             assert [chunk['page_index'] for chunk in exports[-1]['chunks']] == [0, 1]
+            page.route('**/download/*', lambda route: route.fulfill(
+                status=409, headers={'X-Missing-Font': 'MetaBook-Caps'},
+                json={'detail': 'Lettertype ontbreekt.'}))
+            page.locator('#download-btn').click()
+            font_input = page.get_by_label('Lettertype MetaBook-Caps toevoegen', exact=False)
+            expect(font_input).to_be_visible()
+            font_input.set_input_files({'name': 'meta.otf', 'mimeType': 'font/otf', 'buffer': b'font'})
+            page.route('**/fonts/upload', lambda route: route.fulfill(json={'font_name': 'MetaBook-Caps'}))
+            page.get_by_role('button', name='Lettertype uploaden', exact=True).click()
+            expect(page.get_by_role('status').filter(has_text='MetaBook-Caps is toegevoegd')).to_be_visible()
+            expect(second_choice).to_be_checked()
             assert not errors, errors
             browser.close()
             print('Browser: sensitivity, per-place rejection and document-wide rejection passed.')

@@ -21,6 +21,51 @@ sensitivitySelect.addEventListener('change', () => {
     sensitivityHelp.textContent = sensitivityDescriptions[sensitivitySelect.value];
 });
 const statusBox = document.getElementById('status');
+const fontUploadPanel = document.createElement('div');
+fontUploadPanel.hidden = true;
+let missingFontName = '';
+
+function offerFontUpload(response) {
+    const name = response.headers.get('X-Missing-Font');
+    if (!name) return;
+    missingFontName = name;
+    fontUploadPanel.replaceChildren();
+    const label = document.createElement('label');
+    label.textContent = `Lettertype ${name} toevoegen (OTF/TTF, maximaal 10 MB): `;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.otf,.ttf';
+    label.appendChild(input);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = 'Lettertype uploaden';
+    const message = document.createElement('p');
+    message.setAttribute('role', 'status');
+    button.addEventListener('click', async () => {
+        if (!input.files[0]) {
+            message.textContent = 'Kies eerst een fontbestand.';
+            return;
+        }
+        const requestedFont = missingFontName;
+        const data = new FormData();
+        data.append('file', input.files[0]);
+        data.append('expected_font', requestedFont);
+        button.disabled = true;
+        try {
+            const response = await fetch('/fonts/upload', { method: 'POST', body: data });
+            const result = await response.json();
+            if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'Upload mislukt.');
+            message.textContent = `${result.font_name} is toegevoegd. Klik opnieuw op vergelijken of downloaden. Uw correctiekeuzes zijn behouden.`;
+        } catch (error) {
+            message.textContent = error.message;
+        } finally {
+            button.disabled = false;
+        }
+    });
+    fontUploadPanel.append(label, button, message);
+    statusBox.insertAdjacentElement('afterend', fontUploadPanel);
+    fontUploadPanel.hidden = false;
+}
 const issueList = document.getElementById('issue-list');
 const documentText = document.getElementById('document-text');
 const chunkReview = document.getElementById('chunk-review');
@@ -273,6 +318,7 @@ function renderChunks(chunks) {
             });
 
             if (!response.ok) {
+                offerFontUpload(response);
                 const error = await response.json().catch(() => ({ detail: 'PDF-vergelijking kon niet worden gemaakt.' }));
                 throw new Error(error.detail || 'PDF-vergelijking kon niet worden gemaakt.');
             }
@@ -543,6 +589,7 @@ downloadBtn.addEventListener('click', async () => {
             body: JSON.stringify(payload),
         });
         if (!response.ok) {
+            offerFontUpload(response);
             const error = await response.json().catch(() => ({}));
             throw new Error(typeof error.detail === 'string' ? error.detail : 'Het aangepaste document kon niet worden gemaakt.');
         }

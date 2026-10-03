@@ -7,8 +7,18 @@ import re
 import statistics
 import unicodedata
 from dataclasses import dataclass
+from pathlib import Path
 
 import fitz
+
+
+FONT_DIR = Path(__file__).resolve().parents[2] / "storage" / "fonts"
+
+
+class MissingFontError(ValueError):
+    def __init__(self, name: str):
+        self.font_name = _font_name(name)
+        super().__init__(f'Het lettertype {self.font_name} is niet volledig beschikbaar. Upload het bijbehorende OTF- of TTF-bestand en probeer opnieuw.')
 
 
 def _font_name(name: str) -> str:
@@ -59,6 +69,7 @@ class PageTypography:
         self.word_glyphs = {}
         self.metrics = {}
         self.punctuation_fallbacks: set[str] = set()
+        self.supplemental_faces: list[Face] | None = None
         # Match the words extractor's block numbers: images must not increment
         # the raw-text block index on illustrated magazine pages.
         flags = fitz.TEXTFLAGS_RAWDICT & ~fitz.TEXT_PRESERVE_IMAGES
@@ -99,7 +110,7 @@ class PageTypography:
                 try:
                     face = Face(fitz.Font(fontname=name), name)
                 except Exception as exc:
-                    raise ValueError(f'Het oorspronkelijke lettertype {name} ontbreekt in de PDF. De correctie kan niet met behoud van opmaak worden gemaakt.') from exc
+                    raise MissingFontError(name) from exc
             self.faces[xref] = face
         return self.faces[xref]
 
@@ -107,10 +118,16 @@ class PageTypography:
         name = glyph.span["font"]
         entries = [entry for entry in self.fonts if _font_key(entry[3]) == _font_key(name)]
         for entry in entries:
-            face = self._face(entry)
+            try:
+                face = self._face(entry)
+            except MissingFontError:
+                continue
             if all(face.font.has_glyph(ord(char)) for char in glyph.text):
                 return face
-        raise ValueError(f'Het oorspronkelijke lettertype {name} kan niet worden hergebruikt. Vink deze correctie uit.')
+        face = self.supplemental_face(name, glyph.text)
+        if face is not None:
+            return face
+        raise MissingFontError(name)
 
     def face_for(self, glyph: Glyph, text: str) -> Face:
         face = self.original_face(glyph)
@@ -124,6 +141,32 @@ class PageTypography:
                     candidate = self._face(entry)
                     if all(candidate.font.has_glyph(ord(char)) for char in text):
                         return candidate
+        # Full editorial fonts supplement embedded subsets. Match the font's
+        # internal name (including weight/style), never a user-chosen filename.
+        candidate = self.supplemental_face(name, text)
+        if candidate is not None:
+            return candidate
+        return self.punctuation_face(name, text)
+
+    def supplemental_face(self, name: str, text: str) -> Face | None:
+        if self.supplemental_faces is None:
+            self.supplemental_faces = []
+            for path in sorted(FONT_DIR.glob("*")):
+                if path.suffix.lower() not in {".otf", ".ttf"} or not path.is_file():
+                    continue
+                try:
+                    data = path.read_bytes()
+                    font = fitz.Font(fontbuffer=data)
+                except (OSError, RuntimeError, ValueError):
+                    continue
+                self.supplemental_faces.append(Face(font, f"VKVfull{len(self.supplemental_faces)}", data))
+        for candidate in self.supplemental_faces:
+            if (_font_key(candidate.font.name) == _font_key(name)
+                    and all(candidate.font.has_glyph(ord(char)) for char in text)):
+                return candidate
+        return None
+
+    def punctuation_face(self, name: str, text: str) -> Face:
         # A subset can omit a newly added comma. Substitute only that punctuation,
         # never the word's letters, and keep the source color, size and baseline.
         if all(unicodedata.category(char).startswith("P") for char in text):
@@ -137,7 +180,7 @@ class PageTypography:
             if all(fallback.font.has_glyph(ord(char)) for char in text):
                 self.punctuation_fallbacks.add(text)
                 return fallback
-        raise ValueError(f'Het teken “{text}” ontbreekt in het oorspronkelijke lettertype {name}. Vink deze correctie uit om de opmaak te behouden.')
+        raise MissingFontError(name)
 
     def measurements(self, glyph: Glyph) -> tuple[float, float, float]:
         key = id(glyph.span)

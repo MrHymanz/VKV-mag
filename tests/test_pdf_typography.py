@@ -1,9 +1,30 @@
 import fitz
 import pytest
+from types import SimpleNamespace
 
 from app.parsers.pdf_parser import page_text
 from app.services.pdf_preview import apply_pdf_page_corrections, _comparison_pages
 from app.services.pdf_text_style import PageTypography
+
+
+def test_missing_letter_uses_matching_full_font(tmp_path, monkeypatch):
+    import app.services.pdf_text_style as styles
+    full = fitz.Font(fontbuffer=fitz.Font('hebi').buffer)
+    (tmp_path / 'editorial.otf').write_bytes(full.buffer)
+    monkeypatch.setattr(styles, 'FONT_DIR', tmp_path)
+    with fitz.open() as doc:
+        page = doc.new_page()
+        typography = PageTypography(page)
+        monkeypatch.setattr(typography, 'original_face', lambda glyph:
+                            SimpleNamespace(font=SimpleNamespace(has_glyph=lambda code: 0)))
+        glyph = SimpleNamespace(span={'font': full.name})
+        face = typography.face_for(glyph, 'N')
+        assert face.font.name == full.name
+        assert face.font.has_glyph(ord('N'))
+        # A different weight must not silently use the available bold italic.
+        glyph.span['font'] = 'Helvetica'
+        with pytest.raises(ValueError, match='niet volledig beschikbaar'):
+            typography.face_for(glyph, 'N')
 
 
 def word_style(page, text):
