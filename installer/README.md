@@ -3,7 +3,8 @@
 ## Installeren en gebruiken
 
 1. Gebruik een Windows 10/11-computer met een 64-bit Intel- of AMD-processor.
-2. Vraag `VKV-Documentcontrole-Setup.exe` aan de beheerder. Het pakket is ongeveer
+2. Download [VKV-Documentcontrole-Setup.exe](dist/VKV-Documentcontrole-Setup.exe)
+   via de downloadknop op GitHub. Het pakket is ongeveer
    361 MB; de uitgepakte installatie neemt ongeveer 700 MB in beslag.
 3. Start het bestand en kies de installatiemap. Standaard installeert het voor de
    huidige gebruiker onder `%LOCALAPPDATA%\Programs\VKV Documentcontrole`.
@@ -15,7 +16,20 @@
 De installer is niet digitaal ondertekend. Windows kan daarom een melding over
 een onbekende uitgever tonen. Gebruik alleen het bestand dat u van de beheerder
 hebt ontvangen; deze levert ook een `.sha256`-bestand voor integriteitscontrole.
-Het installatiebestand en de runtimes staan niet in Git.
+Het installatiebestand wordt via **Git LFS** bijgehouden, omdat het groter is
+dan GitHubs limiet van 100 MiB voor gewone Git-bestanden. Zie de
+[GitHub-documentatie](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github).
+Na een clone haalt u het volledige bestand op met:
+
+```bash
+git lfs install
+git lfs pull
+```
+
+Hiervoor moet Git LFS geïnstalleerd zijn. Alleen een klein tekstbestand in plaats
+van de `.exe` betekent dat u de LFS-pointer hebt en het echte bestand nog moet
+ophalen. De `.sha256` staat naast de installer. Tijdelijke buildbestanden blijven
+buiten Git. Een push moet zowel de Git-commit als het LFS-object uploaden.
 
 ## Gegevens, updates en problemen
 

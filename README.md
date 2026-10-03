@@ -6,7 +6,8 @@ Voor Windows 10/11 (64-bit) is er een zelfstandig installatieprogramma:
 `VKV-Documentcontrole-Setup.exe`. Het bevat Python, Java en LanguageTool en
 werkt lokaal zonder verbinding met deze server.
 
-1. Vraag het installatiebestand aan de beheerder; het staat niet in de Git-repository.
+1. Download [VKV-Documentcontrole-Setup.exe](installer/dist/VKV-Documentcontrole-Setup.exe)
+   via de downloadknop op GitHub, of haal het op met Git LFS (zie de Windows-handleiding).
 2. Start de `.exe` en volg de installatiestappen. Een aparte installatie van Python,
    Java of Docker is niet nodig.
 3. Open de snelkoppeling **VKV Documentcontrole**. Na het starten van de lokale
@@ -20,7 +21,8 @@ Zie [Windows-installatie, gegevens en bouwen](installer/README.md) voor details.
 
 Het bestand wordt op de buildserver gegenereerd in
 `installer/dist/VKV-Documentcontrole-Setup.exe` en kan als één bestand worden gedeeld.
-Documentuploads in `storage/uploads/` en Windows-buildbestanden worden niet in Git opgenomen.
+Documentuploads in `storage/uploads/` en tijdelijke Windows-buildbestanden worden niet in Git opgenomen.
+De distributie-`.exe` wordt via Git LFS bijgehouden; het SHA-256-controlebestand staat ernaast.
 
 Dit project is een server-first proof-of-concept voor documentcontrole binnen de Volvo Klassieker Vereniging (VKV). Het doel is om redacteuren een eenvoudige workflow te bieden voor het uploaden van documenten, lokaal controleren met LanguageTool, aanpassen van fouten en downloaden van het gecorrigeerde document, zonder externe LLM-API's of cloudspellingsdiensten te gebruiken.
 
