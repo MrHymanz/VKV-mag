@@ -1,0 +1,22 @@
+VKV Documentcontrole - Windows 10/11, 64-bit
+
+Installeer met VKV-Documentcontrole-Setup.exe en start de snelkoppeling
+VKV Documentcontrole. Python en Java hoeven niet apart geinstalleerd te worden.
+De spellingcontrole werkt lokaal; een internetverbinding is niet nodig.
+
+Tijdens het starten verschijnt een venster. Even later opent de app in uw
+standaardbrowser. Laat het startvenster open tijdens het werken. Sluit de app
+door in dat venster op Enter te drukken. Download uw aangepaste document eerst.
+Gebruik uitsluitend uw eigen computer en open de app niet voor het netwerk.
+
+Lettertypen en logs staan in %LOCALAPPDATA%\VKV-mag\data.
+Lettertypen blijven na verwijderen van de app bewaard in die map.
+Voor een nieuwe installatieversie: sluit eerst de app en installeer opnieuw.
+
+Dit pakket bevat de app, Python, Eclipse Temurin Java, LanguageTool en de
+benodigde Python-bibliotheken. Hun licentieteksten staan bij de componenten
+(onder andere java/legal, languagetool/COPYING.txt en *.dist-info/licenses).
+De meegeleverde redactiefonts zijn afkomstig uit de serverinstallatie.
+
+Deze build is niet digitaal ondertekend en nog niet op een echte Windows-pc
+getest. Controleer voor productiewerk een proefdocument en de PDF-uitvoer.

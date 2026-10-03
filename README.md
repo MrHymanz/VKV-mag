@@ -1,5 +1,27 @@
 # Volvo Klassieker Vereniging – Documentcontrole
 
+## Windows-versie delen
+
+Voor Windows 10/11 (64-bit) is er een zelfstandig installatieprogramma:
+`VKV-Documentcontrole-Setup.exe`. Het bevat Python, Java en LanguageTool en
+werkt lokaal zonder verbinding met deze server.
+
+1. Vraag het installatiebestand aan de beheerder; het staat niet in de Git-repository.
+2. Start de `.exe` en volg de installatiestappen. Een aparte installatie van Python,
+   Java of Docker is niet nodig.
+3. Open de snelkoppeling **VKV Documentcontrole**. Na het starten van de lokale
+   spellingcontrole opent de app in de standaardbrowser.
+4. Laat het startvenster open tijdens het werken. Download het gecorrigeerde
+   document en druk daarna in het startvenster op **Enter** om de app af te sluiten.
+
+De huidige build is niet digitaal ondertekend. Installatie en documentverwerking
+zijn onder Wine getest; voer voor productiewerk ook een proef uit op de Windows-pc.
+Zie [Windows-installatie, gegevens en bouwen](installer/README.md) voor details.
+
+Het bestand wordt op de buildserver gegenereerd in
+`installer/dist/VKV-Documentcontrole-Setup.exe` en kan als één bestand worden gedeeld.
+Documentuploads in `storage/uploads/` en Windows-buildbestanden worden niet in Git opgenomen.
+
 Dit project is een server-first proof-of-concept voor documentcontrole binnen de Volvo Klassieker Vereniging (VKV). Het doel is om redacteuren een eenvoudige workflow te bieden voor het uploaden van documenten, lokaal controleren met LanguageTool, aanpassen van fouten en downloaden van het gecorrigeerde document, zonder externe LLM-API's of cloudspellingsdiensten te gebruiken.
 
 ## Kernprincipes

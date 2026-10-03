@@ -4,6 +4,7 @@ from __future__ import annotations
 import difflib
 import math
 import json
+import os
 import hashlib
 from io import BytesIO
 import re
@@ -16,7 +17,7 @@ import fitz
 from fontTools.ttLib import TTFont, TTLibError
 
 
-FONT_DIR = Path(__file__).resolve().parents[2] / "storage" / "fonts"
+FONT_DIR = Path(os.getenv('FONT_DIR', str(Path(__file__).resolve().parents[2] / 'storage' / 'fonts')))
 
 
 class MissingFontError(ValueError):
