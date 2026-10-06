@@ -222,6 +222,14 @@ worden in alle standen overgeslagen. Ook losse fragmenten van afgebroken woorden
 blijven ongemoeid. De PDF-vergelijking beschermt deze afbrekingen bovendien bij
 verzoeken vanuit een oude browsersessie.
 
+## Dubbele spaties in DOCX
+
+DOCX-bestanden worden in alle gevoeligheidsstanden ook op dubbele of meervoudige
+gewone spaties tussen woorden gecontroleerd. Deze voorstellen staan standaard
+uit; vink ze aan om de reeks door één spatie te vervangen. Tabs, inspringing,
+regelafbrekingen en vaste spaties vallen buiten deze extra controle. Deze
+controle is niet toegevoegd aan PDF- of TXT-bestanden.
+
 ## Redactiefonts
 
 Bij een ontbrekend of onbruikbaar PDF-lettertype verschijnt bij vergelijken of

@@ -31,6 +31,7 @@ from app.services.correction_service import apply_correction
 from app.services.document_export import ExportRequest, export_document
 from app.services.languagetool import LanguageToolClient
 from app.services.pdf_preview import build_comparison_pdf_preview
+from app.services.spacing_check import add_docx_spacing_issues
 from app.services.pdf_text_style import FONT_DIR, MissingFontError, font_matches, override_path
 
 app = FastAPI(title="VKV Documentcontrole", version="0.1.0")
@@ -135,6 +136,8 @@ async def upload_document(
                 start += len(text) + 1
         else:
             chunks = lt.check_document_chunks(parsed.text, language=DEFAULT_LANGUAGE)
+            if parsed.file_type == 'docx':
+                chunks = add_docx_spacing_issues(parsed.text, chunks)
         issues = [issue for chunk in chunks for issue in chunk["issues"]]
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

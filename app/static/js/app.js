@@ -446,13 +446,14 @@ function renderChunks(chunks) {
                 checkbox.checked = issue.accepted === true;
                 const label = document.createElement('span');
                 const start = issue.offset - (chunk.start || 0);
-                label.textContent = `Overnemen: “${chunk.text.slice(start, start + issue.length)}” →`;
+                const original = chunk.text.slice(start, start + issue.length);
+                label.textContent = `Overnemen: “${/^ +$/.test(original) ? `${original.length} spaties` : original}” →`;
                 const select = document.createElement('select');
                 select.setAttribute('aria-label', 'Vervanging kiezen');
                 issue.replacements.forEach((replacement, index) => {
                     const option = document.createElement('option');
                     option.value = index;
-                    option.textContent = replacement.value === '' ? '(verwijderen)' : replacement.value;
+                    option.textContent = replacement.value === '' ? '(verwijderen)' : replacement.value === ' ' ? '(1 spatie)' : replacement.value;
                     select.appendChild(option);
                 });
                 select.value = issue.selectedReplacement ?? 0;
