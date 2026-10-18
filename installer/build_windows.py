@@ -30,6 +30,9 @@ def download(url, target, checksum=None):
 
 
 def main():
+    # Rebuild application files and dependencies without remnants of older versions.
+    shutil.rmtree(PAYLOAD, ignore_errors=True)
+    shutil.rmtree(BUILD / 'wheels', ignore_errors=True)
     PAYLOAD.mkdir(parents=True, exist_ok=True)
     (ROOT / 'dist').mkdir(exist_ok=True)
     manifest = {}
@@ -83,6 +86,9 @@ def main():
     env = dict(os.environ, NSISDIR=str(BUILD / 'nsis'))
     for script in ('launcher.nsi', 'setup.nsi'):
         subprocess.run([str(BUILD / 'makensis'), '-V2', script], cwd=ROOT, env=env, check=True)
+    executable = ROOT / 'dist' / 'VKV-Documentcontrole-Setup.exe'
+    digest = hashlib.sha256(executable.read_bytes()).hexdigest()
+    executable.with_suffix('.exe.sha256').write_text(f'{digest}  {executable.name}\n')
     print(ROOT / 'dist' / 'VKV-Documentcontrole-Setup.exe', flush=True)
 
 

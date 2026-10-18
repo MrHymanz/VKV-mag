@@ -1,0 +1,27 @@
+services:
+  backend:
+    build: .
+    restart: unless-stopped
+    user: "${VKV_UID:-1000}:${VKV_GID:-1000}"
+    ports:
+      - "${VKV_BIND_ADDRESS:-0.0.0.0}:${VKV_PORT:-8765}:8765"
+    environment:
+      LANGUAGETOOL_URL: http://languagetool:8010
+      LANGUAGETOOL_TIMEOUT_SECONDS: ${LANGUAGETOOL_TIMEOUT_SECONDS:-60}
+      DEFAULT_LANGUAGE: ${DEFAULT_LANGUAGE:-nl-NL}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-25}
+      UPLOAD_DIR: storage/uploads
+      TEMP_DIR: storage/temporary
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ALLOWED_EXTENSIONS: .txt,.docx,.pdf
+    volumes:
+      - ./storage:/app/storage
+    depends_on:
+      - languagetool
+
+  languagetool:
+    image: erikvl87/languagetool:latest
+    restart: unless-stopped
+    environment:
+      Java_Xms: 256m
+      Java_Xmx: 512m

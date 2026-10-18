@@ -26,6 +26,117 @@ De distributie-`.exe` wordt via Git LFS bijgehouden; het SHA-256-controlebestand
 
 Dit project is een server-first proof-of-concept voor documentcontrole binnen de Volvo Klassieker Vereniging (VKV). Het doel is om redacteuren een eenvoudige workflow te bieden voor het uploaden van documenten, lokaal controleren met LanguageTool, aanpassen van fouten en downloaden van het gecorrigeerde document, zonder externe LLM-API's of cloudspellingsdiensten te gebruiken.
 
+## Backend installeren op een Linux-server
+
+De backend levert ook de webinterface: gebruikers openen de server in hun browser.
+De Windows-`.exe` is voor zelfstandig lokaal gebruik en hoeft niet op de server
+of op de computers van deze gebruikers te worden geïnstalleerd.
+
+### Installeren met Docker Compose
+
+Vereist: Git, Docker Engine met de Compose-plugin en een Linux-server met voldoende
+ruimte voor de containerimages en documenten. Reserveer als startpunt 2 GB RAM;
+grote PDF’s en meerdere gebruikers kunnen meer nodig hebben. Voer de opdrachten
+uit als gebruiker die Docker mag gebruiken, vanuit de projectmap.
+
+1. Clone deze repository met de clone-URL van uw Git-server. De grote Windows-installer
+   is voor de backend niet nodig:
+
+   ```bash
+   GIT_LFS_SKIP_SMUDGE=1 git clone <clone-URL> VKV-mag
+   cd VKV-mag
+   ```
+
+2. Maak de opslagmappen aan en stel de containergebruiker in op de eigenaar ervan:
+
+   ```bash
+   mkdir -p storage/uploads storage/temporary storage/fonts
+   cp .env.example .env
+   printf '\nVKV_UID=%s\nVKV_GID=%s\n' "$(id -u)" "$(id -g)" >> .env
+   ```
+
+   Bij een bestaande installatie: behoud uw `.env` en controleer dat deze gebruiker
+   in alle drie de mappen kan schrijven. Gebruik geen algemene `chmod 777`.
+
+3. Start de backend en de meegeleverde LanguageTool-dienst:
+
+   ```bash
+   docker compose -f docker-compose.backend.yml up -d --build
+   docker compose -f docker-compose.backend.yml ps
+   docker compose -f docker-compose.backend.yml logs --tail=100
+   ```
+
+   De eerste start downloadt images en Python-afhankelijkheden. Wacht tot
+   LanguageTool klaar is; tijdens het laden kan een upload nog een 503 geven.
+   LanguageTool is alleen binnen het Docker-netwerk bereikbaar.
+
+4. Open `http://<server-IP>:8765`. Controleer een klein TXT-bestand met een
+   spelfout en download de correctie. Controleer daarna ook een eigen DOCX/PDF.
+   Een eenvoudige bereikbaarheidscontrole op de server is:
+
+   ```bash
+   curl --fail http://127.0.0.1:8765/ > /dev/null
+   ```
+
+Deze opdrachten gebruiken bewust `docker-compose.backend.yml`. De bestaande
+`docker-compose.yml` is voor de huidige server met een afzonderlijke
+LanguageTool op hostpoort 8010. Start beide configuraties niet tegelijk op poort
+8765. De backendvariant heeft geen vaste containernamen.
+
+### Configuratie en bereikbaarheid
+
+Compose leest `.env` in de projectmap. De backendconfiguratie ondersteunt:
+
+| Variabele | Standaard | Doel |
+| --- | --- | --- |
+| `VKV_UID`, `VKV_GID` | `1000` | Eigenaar met schrijfrechten op `storage` |
+| `VKV_BIND_ADDRESS` | `0.0.0.0` | Luisteradres op de host |
+| `VKV_PORT` | `8765` | Poort op de host |
+| `DEFAULT_LANGUAGE` | `nl-NL` | Taal van de controle |
+| `MAX_UPLOAD_MB` | `25` | Maximale documentgrootte |
+| `LANGUAGETOOL_TIMEOUT_SECONDS` | `60` | Wachttijd voor spellingcontrole |
+| `LOG_LEVEL` | `INFO` | Logniveau |
+
+De LanguageTool-URL en opslagpaden worden in deze Compose-configuratie ingesteld
+op de interne dienst en het gekoppelde storage-volume. `APP_PORT` in `.env`
+verandert de Uvicorn-poort niet; gebruik `VKV_PORT` voor de hostpoort.
+De app leest een `.env` niet zelf in bij een start buiten Compose.
+
+De app heeft nog geen ingebouwde login. Gebruik haar op een vertrouwd intern
+netwerk, via VPN of achter een reverse proxy met authenticatie en HTTPS.
+Voor een reverse proxy op dezelfde host zet u `VKV_BIND_ADDRESS=127.0.0.1` in
+`.env`; stuur verkeer door naar `http://127.0.0.1:8765`. Sta in de proxy uploads
+van minstens 25 MB en voldoende verwerkingstijd toe (bijvoorbeeld 120 seconden).
+Publiceer de LanguageTool-poort niet.
+
+### Beheer, updates en gegevens
+
+```bash
+# Logs bekijken
+docker compose -f docker-compose.backend.yml logs -f --tail=100
+
+# Applicatie bijwerken vanuit Git en opnieuw bouwen
+GIT_LFS_SKIP_SMUDGE=1 git pull --ff-only
+docker compose -f docker-compose.backend.yml up -d --build
+
+# Stoppen
+docker compose -f docker-compose.backend.yml down
+```
+
+De map `storage` blijft buiten de containers bewaard. Plaats redactiefonts
+in `storage/fonts`; maak van deze map inclusief JSON-koppelingen een back-up.
+**Bij netjes stoppen of herstarten verwijdert de app uploads en tijdelijke
+bestanden.** Laat gebruikers hun resultaat vooraf downloaden. Goedkeuringen
+staan in het werkgeheugen; maak lopende controles na een herstart opnieuw.
+`TEMP_FILE_TTL_MINUTES` voert momenteel geen periodieke opruiming uit.
+
+Bij een 503: bekijk de LanguageTool-logs en wacht tot de dienst geladen is.
+Bij `Permission denied`: controleer `VKV_UID`, `VKV_GID` en de eigenaar van
+`storage`. Bij een poortconflict: kies bijvoorbeeld `VKV_PORT=8767` in `.env`
+en voer de startopdracht opnieuw uit. Voor reproduceerbare releases kunt u de
+LanguageTool-image in de Compose-configuratie op een geteste digest vastzetten;
+`latest` kan bij een volgende pull wijzigen.
+
 ## Kernprincipes
 
 - Server-first architectuur, niet laptop-first.
@@ -53,9 +164,9 @@ Deze logica wordt niet gekoppeld aan Windows of Docker; alleen de startup- en de
 De voorkeur gaat uit naar een volledig lokale LanguageTool-instantie, bijvoorbeeld:
 
 - lokaal Java-process
-- of Docker-container met `erikzaadi/languagetool` of officiële LanguageTool image
+- of de Docker-container uit `docker-compose.backend.yml`
 
-De backend communiceert alleen met `LANGUAGETOOL_URL`, standaard `http://127.0.0.1:8081`.
+De backend communiceert alleen met `LANGUAGETOOL_URL`, bij een directe Python-start standaard `http://127.0.0.1:8010`.
 
 ### 3. DOCX-behoud van opmaak
 
@@ -63,51 +174,26 @@ Voor DOCX gebruiken we `python-docx` en werken we op run-/paragraph-niveau in pl
 
 ### 4. Deployment zonder WSL als verplichte eis
 
-Voor Windows is het doel een native installatiemethode zonder dat de eindgebruiker Python, Java of WSL handmatig hoeft te installeren. De server-variant gebruikt Docker, terwijl een native Windows-build via PyInstaller of een bundeld package kan worden uitgebracht.
+Voor Windows is het doel een native installatiemethode zonder dat de eindgebruiker Python, Java of WSL handmatig hoeft te installeren. De server-variant gebruikt Docker, en de Windows-installer bundelt Python, Java en LanguageTool met een NSIS-launcher.
 
 ## Projectstructuur
 
 ```text
 VKV-mag/
-├── app/
-│   ├── main.py
-│   ├── config.py
-│   ├── models/
-│   │   ├── document.py
-│   │   └── correction.py
-│   ├── parsers/
-│   │   ├── base.py
-│   │   ├── docx_parser.py
-│   │   └── txt_parser.py
-│   ├── routes/
-│   │   ├── upload.py
-│   │   └── check.py
-│   ├── services/
-│   │   ├── correction_service.py
-│   │   └── languagetool.py
-│   ├── static/
-│   │   └── css/
-│   │       └── styles.css
-│   ├── templates/
-│   │   ├── index.html
-│   │   └── editor.html
-│   └── __init__.py
-├── docker/
-│   ├── Dockerfile
-│   └── docker-compose.yml
-├── docs/
-│   └── architecture.md
-├── installer/
-│   └── README.md
+├── app/                       # FastAPI, parsers, diensten en webinterface
+├── docs/                      # Architectuur
+├── installer/                 # Windows-launcher, bouwscript en dist/*.exe
 ├── storage/
-│   ├── temporary/
-│   └── uploads/
+│   ├── fonts/                 # Redactiefonts en fontkoppelingen
+│   ├── temporary/             # Tijdelijke uitvoer
+│   └── uploads/               # Geüploade documenten
 ├── tests/
-│   └── test_phase1.py
+├── Dockerfile
+├── docker-compose.yml         # Bestaande server met externe LanguageTool
+├── docker-compose.backend.yml # Zelfstandige backend plus LanguageTool
 ├── .env.example
 ├── requirements.txt
-├── README.md
-└── pyproject.toml
+└── README.md
 ```
 
 ## Fase 1
@@ -137,7 +223,7 @@ Gebruik een lokale Python-omgeving en start de app via:
 python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8765
 ```
 
-De app verwacht een lokaal draaiende LanguageTool-instantie op de configuratie-URL, standaard `http://127.0.0.1:8081`.
+De app verwacht een lokaal draaiende LanguageTool-instantie op de configuratie-URL, bij een directe Python-start standaard `http://127.0.0.1:8010`.
 
 De Docker-container draait standaard met UID/GID `1000:1000`, passend bij de
 schrijfrechten van de opslagmappen op deze server. Gebruik bij een verhuizing
@@ -256,7 +342,7 @@ wordt via het bestaande storage-volume ook in Docker beschikbaar gemaakt.
 
 - Geen externe API's
 - Geen analytics van derden
-- Tijdelijke bestanden worden standaard lokaal verwijderd
+- Uploads en tijdelijke bestanden worden bij netjes afsluiten lokaal verwijderd
 - Uploads worden niet gelogd met volledige documentinhoud
 
 ## Belangrijk

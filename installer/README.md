@@ -5,7 +5,7 @@
 1. Gebruik een Windows 10/11-computer met een 64-bit Intel- of AMD-processor.
 2. Download [VKV-Documentcontrole-Setup.exe](dist/VKV-Documentcontrole-Setup.exe)
    via de downloadknop op GitHub. Het pakket is ongeveer
-   361 MB; de uitgepakte installatie neemt ongeveer 700 MB in beslag.
+   357 MB; de uitgepakte installatie neemt ongeveer 700 MB in beslag.
 3. Start het bestand en kies de installatiemap. Standaard installeert het voor de
    huidige gebruiker onder `%LOCALAPPDATA%\Programs\VKV Documentcontrole`.
 4. Start **VKV Documentcontrole** via het bureaublad of het startmenu. Wacht totdat
@@ -74,8 +74,16 @@ LanguageTool wordt gestart volgens de
 Deze build is niet digitaal ondertekend. Een proef op een echte Windows 10/11-pc
 blijft nodig; tests op Linux/Wine vervangen die proef niet.
 
-Gecontroleerd bij deze build: 69 app-tests, installatie en snelkoppeling onder
-Wine 10, Windows-Python-imports, Java-start en de volledige upload/spelling/
-TXT-download/PDF-vergelijking/PDF-download-keten, ook vanuit de geïnstalleerde
-map met spaties. `smoke_windows.py` voert die ketentest uit met de gebundelde
-Windows-Python.
+Controle bij de update van 18 oktober 2026: 74 app-tests geslaagd en de installer
+opnieuw gebouwd met de huidige broncode. De SHA-256 wordt automatisch naast de
+installer geschreven. Iedere build maakt de payload en wheelmap eerst leeg,
+zodat oude modules en pakketversies niet achterblijven.
+
+De eerdere build is onder Wine getest op installatie, snelkoppeling,
+Windows-Python-imports, Java-start en de upload/spelling/TXT-download/
+PDF-vergelijking/PDF-download-keten. Wine is in de huidige omgeving niet
+beschikbaar; deze Windows-ketentest is voor deze update niet opnieuw uitgevoerd.
+`smoke_windows.py` voert die ketentest uit met de gebundelde Windows-Python.
+
+Voor installatie op een gedeelde backend gebruikt u de
+[Linux/Docker-instructies in de hoofd-README](../README.md#backend-installeren-op-een-linux-server).
