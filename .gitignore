@@ -6,3 +6,4 @@ installer/dist/*
 !installer/dist/VKV-Documentcontrole-Setup.exe
 !installer/dist/VKV-Documentcontrole-Setup.exe.sha256
 storage/uploads/
+storage/temporary/
